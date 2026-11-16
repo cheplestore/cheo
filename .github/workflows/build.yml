@@ -7,6 +7,8 @@ on:
   push:
     branches: [main]
     paths: ['cdbos/**', '.github/workflows/build.yml']
+  pull_request:             # test-compile pull requests (doesn't upload anything)
+    paths: ['cdbos/**', '.github/workflows/build.yml']
   workflow_dispatch:        # "Run workflow" button on the Actions tab
 
 permissions:
@@ -48,6 +50,7 @@ jobs:
           ls -la cdbos/build/*/
 
       - name: Update cheo-s3.bin and version.txt
+        if: github.event_name != 'pull_request'
         run: |
           VER=$(grep -oP '#define FW_VERSION \K[0-9]+' cdbos/cdbos.ino)
           cp cdbos/build/esp32.esp32.esp32s3/cdbos.ino.bin cheo-s3.bin
