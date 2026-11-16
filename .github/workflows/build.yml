@@ -6,9 +6,9 @@ name: Build Cheo firmware
 on:
   push:
     branches: [main]
-    paths: ['cdbos/**', '.github/workflows/build.yml']
+    paths: ['cdbos/**', 'wake/**', '.github/workflows/build.yml']
   pull_request:             # test-compile pull requests (doesn't upload anything)
-    paths: ['cdbos/**', '.github/workflows/build.yml']
+    paths: ['cdbos/**', 'wake/**', '.github/workflows/build.yml']
   workflow_dispatch:        # "Run workflow" button on the Actions tab
 
 permissions:
@@ -42,6 +42,23 @@ jobs:
             exit 1
           fi
 
+      - name: Add the "Hey Cheo" model (if one is in wake/)
+        run: |
+          Z=$(ls wake/*.zip 2>/dev/null | head -1 || true)
+          if [ -n "$Z" ]; then
+            arduino-cli config set library.enable_unsafe_install true
+            arduino-cli lib install --zip-path "$Z"
+            H=$(ls ~/Arduino/libraries/*/src/*_inferencing.h | head -1)
+            echo "Wake word model: $H"
+            printf '#pragma once\n#define EIDSP_QUANTIZE_FILTERBANK 0\n#define EI_CLASSIFIER_SLICES_PER_MODEL_WINDOW 4\n#include <%s>\n' "$(basename "$H")" > cdbos/wake_model.h
+            cat cdbos/wake_model.h
+          else
+            echo "No wake word model in wake/ yet - building without it"
+          fi
+
+      - name: Stamp the build number
+        run: echo "#define BUILD_NUM ${{ github.run_number }}" > cdbos/build_num.h
+
       - name: Compile for ESP32-S3
         run: |
           arduino-cli compile \
@@ -54,8 +71,8 @@ jobs:
         run: |
           VER=$(grep -oP '#define FW_VERSION \K[0-9]+' cdbos/cdbos.ino)
           cp cdbos/build/esp32.esp32.esp32s3/cdbos.ino.bin cheo-s3.bin
-          echo "$VER" > version.txt
-          rm -rf cdbos/build
+          echo $((VER * 1000 + ${{ github.run_number }})) > version.txt   # e.g. 13042 = v13, build 42
+          rm -rf cdbos/build cdbos/wake_model.h cdbos/build_num.h
           git config user.name "cheo-builder"
           git config user.email "cheo-builder@users.noreply.github.com"
           git add cheo-s3.bin version.txt

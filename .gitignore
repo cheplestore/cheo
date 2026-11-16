@@ -3,3 +3,5 @@ build/
 *.map
 .DS_Store
 cdbos/build/
+cdbos/wake_model.h
+cdbos/build_num.h
