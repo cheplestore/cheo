@@ -15,3 +15,4 @@ br = to_servo(part_solid(L.bracket(sv, (-1, 0))), 'bridge_down')
 for name, s in (('fit_ring', ring), ('fit_bracket', br)):
     csg.write_stl_clean(place(s), f'stl/{name}.stl', name)
     b = place(s).bbox(); print(name, 'size', round(b[1]-b[0],1), round(b[3]-b[2],1), round(b[5]-b[4],1))
+

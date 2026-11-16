@@ -28,10 +28,10 @@ struct LegJoint {
 
 //                   name                  ch  min  max  zero dir trim       physical limit (where parts hit)
 LegJoint LEG[10] = {
-  { "L hip roll",     0, -15,  45,   90, +1, 0 },   // in: other leg at ~3 deg, out: 79
+  { "L hip roll",     0, -15,  45,   90, +1, 0 },   // in: other leg at ~3 deg, out: 78
   { "L hip pitch",    1, -80,  80,   90, +1, 0 },   // +-107 (servo stops at +-90)
-  { "L knee",         2,   0, 115,   45, +1, 0 },   // 121 (assemble with servo at 90 = knee bent 45)
-  { "L ankle pitch",  3, -80,  80,   90, +1, 0 },   // +-106
+  { "L knee",         2,   0, 115,   45, +1, 0 },   // 120 (assemble with servo at 90 = knee bent 45)
+  { "L ankle pitch",  3, -80,  80,   90, +1, 0 },   // +-105
   { "L ankle roll",   4, -45,  45,   90, +1, 0 },   // +-91
   { "R hip roll",     5, -15,  45,   90, -1, 0 },   // right leg is a mirror image: roll dirs flip
   { "R hip pitch",    6, -80,  80,   90, -1, 0 },

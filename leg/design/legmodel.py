@@ -13,6 +13,7 @@ HORN_TOP = 33.8                     # top of the horn (tab bottom -> horn top = 
 HORN_HUB_D, HORN_W0, HORN_W1, HORN_LEN, HORN_T = 7.2, 13.9, 4.5, 16.4, 2.0
 POCKET_CLR = 0.4
 POCKET_DEPTH = 2.4
+ARM_EXTRA = 2.0    # arm part of the pocket made 2 mm longer (user fit test)
 CLR = 0.2                           # fit clearance per side
 
 # ---------------- design values ----------------
@@ -23,7 +24,7 @@ SHOE = 3.0          # shoe floor under the servo (2.5 / 3.0 / 3.5 mm versions fi
 GAP = 0.8           # gap between shoe and bracket plate
 PIV0, PIV1 = -(SHOE + GAP + PL), -(SHOE + GAP)        # pivot plate z_s range
 HRN0 = HORN_TOP - 1.6; HRN1 = HRN0 + 4.0               # horn plate z_s range (horn sits in a 1.8 mm pocket)
-BR0, BR1 = 15.0, 19.0                                  # bridge distance from the joint axis
+BR0, BR1 = 15.0, 20.0                                  # bridge distance from the joint axis
 PHW = 9.0                                              # plate / bridge half width
 HIP_Y = 10.0        # hip-roll axis 10 mm from the robot's center (20 mm apart)
 LEG_Y = 26.0        # leg center line 26 mm from the robot's center
@@ -134,7 +135,7 @@ def bracket(sv, d, vmin=-PHW, vmax=PHW, rd=PHW):
     # horn pocket: the hub + the triangle-shaped arm, pointing toward the bridge
     pz0, pz1 = HRN0 - 0.3, HRN0 + POCKET_DEPTH
     out.append((-1, sv.cyl(0, 0, pz0, pz1, HORN_HUB_D / 2 + POCKET_CLR)))
-    hw0 = HORN_W0 / 2 + POCKET_CLR; hw1 = HORN_W1 / 2 + POCKET_CLR; L = HORN_LEN + POCKET_CLR
+    hw0 = HORN_W0 / 2 + POCKET_CLR; hw1 = HORN_W1 / 2 + POCKET_CLR; L = HORN_LEN + POCKET_CLR + ARM_EXTRA
     out.append((-1, Prism(sv.P, sv.R @ Rl, [(0, -hw0), (L, -hw1), (L, hw1), (0, hw0)], pz0, pz1)))
     for r in (10.0, 13.5):                                                   # horn screws
         p = Rl @ np.array([r, 0, 0])
