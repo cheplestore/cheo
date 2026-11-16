@@ -2,6 +2,7 @@
   =====================================================================
    CDBos v11  -  Cheo Desk Buddy Operating System   (ESP32-C6 or ESP32-S3)
   =====================================================================
+   NEW IN v12: talk to Cheo! INMP441 microphone: hold his button (or the web button) and talk (S3 only)
    NEW IN v11: smooth voice (saves up ~1.5 s of voice before talking, no more stutter)
    NEW IN v10
     - Works on the ESP32-C6 AND the ESP32-S3 (picks the right pins by itself)
@@ -42,7 +43,7 @@
 // =====================================================================
 //  SETTINGS
 // =====================================================================
-#define FW_VERSION 11                      // bump this every GitHub release
+#define FW_VERSION 12                      // bump this every GitHub release
 #define OS_NAME "CDBos"
 #if CONFIG_IDF_TARGET_ESP32S3
   #define BOARD_NAME "ESP32-S3"
@@ -119,10 +120,15 @@ const uint32_t HOLD_TIME = 20000, TRANS_MS = 520;
 #define TFT_DC   13
 #define TFT_CS   14
 #define BTN_PIN  0       // BOOT button
+#define MIC_SCK  1       // INMP441 microphone on the right row: SCK 1, WS 2, SD 42 (L/R to GND)
+#define MIC_WS   2
+#define MIC_SD   42
+#define HAS_MIC  1
 #define SCREEN_ROTATION 1
 #else
 // ---- ESP32-C6 ----
 #define SCREEN_ROTATION 3   // C6 Cheo's screen is mounted the other way
+#define HAS_MIC  0
 #define TFT_SCLK 6
 #define TFT_MOSI 7
 #define TFT_CS   18
@@ -412,6 +418,7 @@ void startParty();
 void rainCheck();
 String countdownText();
 int petLevel();
+extern bool micReady;
 String asciiOnly(const String& s);
 void drawCentered(const String& s, int y, int size, uint16_t c);
 bool someoneAround();
@@ -1706,6 +1713,7 @@ String buildSys() {
   if (cdCount) s += " Countdowns: " + countdownText() + ".";
   if (nightActive) s += " It's night mode, keep it short and calm.";
   s += " Wi-Fi: " + (WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("none")) + ".";
+  if (micReady) s += " The user can talk to you out loud; their words come from speech-to-text, so guess past small word mistakes.";
   if (weatherOk) s += " Weather in " + weatherCity + ": " + String((int)round(weatherTemp)) + (USE_F ? "F " : "C ") + weatherLabel(weatherCode) +
                      ", high " + String((int)round(weatherHi)) + ", low " + String((int)round(weatherLo)) + (rainInHours ? ", rain likely in " + String(rainInHours) + " h" : String("")) + ".";
   bool camOnline = millis() - lastCamPacket < 10000;
@@ -1803,6 +1811,163 @@ bool localCommands(String q, String& reply, Mood& m) {
   if (l == "dance" || l == "dance!") { wantDance = true; reply = "Watch my moves!"; m = STARS; return true; }
   if (l == "party" || l == "party mode" || l == "party time") { wantParty = true; reply = "Woohoo!"; m = STARS; return true; }
   return false;
+}
+
+// =====================================================================
+//  v12: MICROPHONE (INMP441) - hold his button (or the web page button) and talk
+// =====================================================================
+const int MIC_RATE = 16000;            // 16 kHz is what speech-to-text wants
+const int MIC_MAX_SEC = 10;            // longest recording
+#if HAS_MIC
+I2SClass micI2S;
+#endif
+int16_t* recBuf = nullptr;
+uint32_t recMax = 0;
+volatile uint32_t recLen = 0;
+volatile bool recording = false;
+bool micReady = false, wantTranscribe = false;
+volatile float micLevel = 0;
+uint32_t listenStart = 0;
+String lastHeard = "";
+
+void micTask(void*) {
+#if HAS_MIC
+  static int32_t raw[256];
+  float dc = 0;
+  for (;;) {
+    size_t n = micI2S.readBytes((char*)raw, sizeof(raw)) / 4;
+    if (n == 0) { vTaskDelay(pdMS_TO_TICKS(10)); continue; }
+    float sum = 0;
+    for (size_t i = 0; i < n; i++) {
+      float s = (float)(raw[i] >> 8);                 // INMP441 sends 24-bit sound
+      dc = dc * 0.995f + s * 0.005f;                  // remove the steady offset
+      float v = (s - dc) / 8.0f;                      // to 16-bit, with some gain
+      if (v > 32767) v = 32767;
+      if (v < -32768) v = -32768;
+      sum += fabsf(v);
+      if (recording && recLen < recMax) recBuf[recLen++] = (int16_t)v;
+    }
+    micLevel = micLevel * 0.6f + (sum / n / 3000.0f) * 0.4f;   // for the eyes / level bar
+  }
+#else
+  vTaskDelete(nullptr);
+#endif
+}
+
+void setupMic() {
+#if HAS_MIC
+  uint32_t want = (uint32_t)MIC_RATE * MIC_MAX_SEC;
+  recBuf = psramFound() ? (int16_t*)ps_malloc(want * 2) : nullptr;
+  if (recBuf) recMax = want;
+  else { recMax = MIC_RATE * 4; recBuf = (int16_t*)malloc(recMax * 2); if (!recBuf) recMax = 0; }
+  micI2S.setPins(MIC_SCK, MIC_WS, -1, MIC_SD);
+  micReady = recBuf && micI2S.begin(I2S_MODE_STD, MIC_RATE, I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
+  if (micReady) xTaskCreatePinnedToCore(micTask, "mic", 4096, nullptr, 2, nullptr, 1);
+  Serial.println(micReady ? "Microphone: ready (hold the button to talk)" : "Microphone: not set up");
+#endif
+}
+
+void startListening() {
+  if (!micReady || recording) return;
+  wake();
+  if (alertShowing) finishAlert(false);
+  sound(8);                                           // "I'm listening" beep
+  delay(150);                                         // don't record the beep
+  recLen = 0;
+  listenStart = millis();
+  recording = true;
+  goScreen(SCR_EYES);
+  holdUntil = 0;
+}
+
+void stopListening() {
+  if (!recording) return;
+  recording = false;
+  sound(9);
+  if (recLen < (uint32_t)MIC_RATE * 4 / 10) { lastErr = "Too short. Hold the button the whole time you talk."; return; }
+  wantTranscribe = true;
+}
+
+void wavHeader(uint8_t* h, uint32_t dataLen, uint32_t rate) {
+  auto w32 = [&](int o, uint32_t v) { h[o] = v; h[o + 1] = v >> 8; h[o + 2] = v >> 16; h[o + 3] = v >> 24; };
+  auto w16 = [&](int o, uint16_t v) { h[o] = v; h[o + 1] = v >> 8; };
+  memcpy(h, "RIFF", 4); w32(4, 36 + dataLen); memcpy(h + 8, "WAVEfmt ", 8);
+  w32(16, 16); w16(20, 1); w16(22, 1); w32(24, rate); w32(28, rate * 2); w16(32, 2); w16(34, 16);
+  memcpy(h + 36, "data", 4); w32(40, dataLen);
+}
+
+// sends the recording to Groq Whisper and returns the words
+String transcribe() {
+  if (WiFi.status() != WL_CONNECTED) { lastErr = "No Wi-Fi."; return ""; }
+  if (groqKey.length() < 10) { lastErr = "No Groq key saved."; return ""; }
+  uint32_t n = recLen;
+  int peak = 1;
+  for (uint32_t i = 0; i < n; i++) { int a = abs(recBuf[i]); if (a > peak) peak = a; }
+  if (peak < 300) { lastErr = "I didn't hear anything. Is the mic plugged in?"; return ""; }
+  float g = 28000.0f / peak;                          // make it nice and loud for Whisper
+  if (g > 8) g = 8;
+  if (g > 1.05f) for (uint32_t i = 0; i < n; i++) recBuf[i] = (int16_t)(recBuf[i] * g);
+
+  const char* B = "----cheoVoice7MA4YWxk";
+  String head = String("--") + B + "\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-large-v3-turbo\r\n" +
+                "--" + B + "\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nen\r\n" +
+                "--" + B + "\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n" +
+                "--" + B + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"cheo.wav\"\r\nContent-Type: audio/wav\r\n\r\n";
+  String tail = String("\r\n--") + B + "--\r\n";
+  uint32_t pcm = n * 2;
+  size_t total = head.length() + 44 + pcm + tail.length();
+  uint8_t* body = psramFound() ? (uint8_t*)ps_malloc(total) : nullptr;
+  if (!body) body = (uint8_t*)malloc(total);
+  if (!body) { lastErr = "Not enough memory for the recording."; return ""; }
+  size_t p = 0;
+  memcpy(body + p, head.c_str(), head.length()); p += head.length();
+  wavHeader(body + p, pcm, MIC_RATE); p += 44;
+  memcpy(body + p, recBuf, pcm); p += pcm;
+  memcpy(body + p, tail.c_str(), tail.length()); p += tail.length();
+
+  String text;
+  WiFiClientSecure c;
+  c.setInsecure();
+  HTTPClient h;
+  h.setTimeout(20000);
+  if (h.begin(c, "https://api.groq.com/openai/v1/audio/transcriptions")) {
+    h.addHeader("Authorization", "Bearer " + groqKey);
+    h.addHeader("Content-Type", String("multipart/form-data; boundary=") + B);
+    int code = h.POST(body, total);
+    String resp = h.getString();
+    if (code == 200) {
+      JsonDocument d;
+      if (!deserializeJson(d, resp)) text = (const char*)(d["text"] | "");
+    } else lastErr = "Hearing error: " + groqErrorMsg(code, resp);
+    h.end();
+  }
+  free(body);
+  text = asciiOnly(text);
+  text.trim();
+  return text;
+}
+
+void micLoop() {
+  if (recording && millis() - listenStart > (uint32_t)MIC_MAX_SEC * 1000UL) stopListening();   // 10 s max
+  if (wantTranscribe && !talkActive()) {
+    wantTranscribe = false;
+    thinking = true;
+    setMood(THINKING, false);
+    render();
+    String t = transcribe();
+    thinking = false;
+    if (t.length()) {
+      lastHeard = t;
+      Serial.println("Heard: " + t);
+      pendingQ = t;
+      hasPending = true;
+      busy = true;
+    } else {
+      setMood(CONFUSED, false);
+      moodUntil = millis() + 4000;
+      speak("Sorry, I didn't catch that.", CONFUSED);
+    }
+  }
 }
 
 // =====================================================================
@@ -2298,6 +2463,7 @@ void drawEyesFace() {
   if (idleType == IA_HUM || idleType == IA_EAT) m = HAPPY;
   int h = 48;
   if (talkActive()) h = 48 + (int)(voiceLevel * 14);     // eyes "pulse" with his voice
+  if (recording) h = 52 + (int)(min((float)micLevel, 1.0f) * 12); // ...and grow while he listens
   drawEye(48 + ox, 60 + oy, 40, h, true, m);
   drawEye(112 + ox, 60 + oy, 40, h, false, m);
   if (m == COOL) drawGlasses(ox, oy);
@@ -2327,6 +2493,13 @@ void drawEyesFace() {
     String s;
     for (int i = 0; i < dots; i++) s += '.';
     drawCentered(s, 92, 2, C_EYE);
+  }
+  if (recording) {                                       // listening bar
+    drawCentered("listening...", 98, 1, C_EYE);
+    int w = (int)(min((float)micLevel, 1.0f) * 100);
+    canvas.drawRoundRect(29, 110, 102, 8, 3, C_DGRAY);
+    if (w > 1) canvas.fillRoundRect(30, 111, w, 6, 2, C_EYE);
+    return;
   }
   drawTimerBadge();
 }
@@ -3514,6 +3687,7 @@ button.b{background:#08c;color:#fff}input,select{background:#0b1020;color:#fff;b
 <h1>Cheo <small style="font-size:14px">CDBos</small></h1><small id=net>...</small>
 <div class=c id=callc style="display:none;background:#123d2a"><b>&#128222; Incoming call</b><br><button class=b onclick="g('/call?a=0')">Answer</button><button onclick="g('/call?a=1')">Decline</button></div>
 <div class=c><input id=q placeholder="Talk to Cheo..." onkeydown="if(event.key=='Enter')ask()"><button class=b onclick=ask()>Send</button>
+<button id=mic class=b style="touch-action:none;-webkit-user-select:none;user-select:none" oncontextmenu="return false" onpointerdown="micOn()" onpointerup="micOff()" onpointerleave="micOff()">&#127908; Hold to talk</button>
 <div id=r></div><small id=err style="color:#f88"></small></div>
 <div class=c><b>Pet</b> <small id=lv></small><div id=pet></div>
 <button onclick="pa('feed&f=cheese')">&#129472; Cheese</button><button onclick="pa('feed&f=cookie')">&#127850;</button><button onclick="pa('feed&f=pizza')">&#127829;</button><button onclick="pa('feed&f=apple')">&#127822;</button><button onclick="pa('feed&f=cake')">&#127856;</button><button onclick="pa('feed&f=battery')">&#128267;</button><br>
@@ -3550,9 +3724,12 @@ eye.innerHTML=E.map((e,i)=>`<option value=${i}>${e}</option>`).join('');
 let waiting=0;
 var ask=()=>{let v=q.value.trim();if(!v)return;q.value='';r.textContent='...';err.textContent='';g('/ask?q='+encodeURIComponent(v));waiting=1}
 var say=(t)=>{q.value=t;ask()}
+let micDown=0;
+var micOn=()=>{micDown=1;mic.textContent='Listening... let go when done';g('/mic?on=1')}
+var micOff=()=>{if(!micDown)return;micDown=0;mic.textContent='\u{1F3A4} Hold to talk';g('/mic?on=0');r.textContent='...';err.textContent='';waiting=1}
 var pa=(a)=>{g('/pet?a='+a).then(load)}
 var addcd=()=>{if(!cdd.value)return;g('/cdadd?d='+cdd.value+'&l='+encodeURIComponent(cdl.value)).then(()=>{cdl.value='';load()})}
-setInterval(()=>{if(waiting)fetch('/last').then(x=>x.json()).then(j=>{if(!j.busy){r.textContent=j.reply;err.textContent=j.err;waiting=0;load()}})},700);
+setInterval(()=>{if(waiting)fetch('/last').then(x=>x.json()).then(j=>{if(!j.busy&&!j.listening){r.textContent=(j.heard?'You: '+j.heard+'\n':'')+'Cheo: '+j.reply;err.textContent=j.err;waiting=0;load()}})},700);
 var load=()=>{
 fetch('/net').then(x=>x.json()).then(j=>{net.textContent=j.os+' v'+j.ver+' · '+j.board+' · '+(j.ssid||'no Wi-Fi')+' · '+j.ip+' · iPhone '+(j.ble?'connected':'not connected')+' · camera '+(j.cam?'on':'off');
 vol.value=j.vol;if(j.err&&!waiting)err.textContent=j.err;lv.textContent='level '+j.lv+' · '+j.xp+' XP';
@@ -3652,14 +3829,21 @@ void setupWeb() {
   server.on("/", []() { lastWebHit = millis(); if (apMode) { server.sendHeader("Location", "/settings"); server.send(302, "text/plain", ""); return; } server.send_P(200, "text/html", PAGE); });
   server.on("/settings", []() { lastWebHit = millis(); server.send_P(200, "text/html", SETTINGS_PAGE); });
   server.on("/ask", []() {
+    lastHeard = "";
     pendingQ = server.arg("q");
     pendingQ.trim();
     if (pendingQ.length()) { hasPending = true; busy = true; }
     server.send(200, "text/plain", "ok");
   });
+  server.on("/mic", []() {
+    if (server.arg("on") == "1") startListening(); else stopListening();
+    server.send(200, "text/plain", micReady ? "ok" : "no mic");
+  });
   server.on("/last", []() {
     JsonDocument d;
     d["reply"] = lastReply;
+    d["heard"] = lastHeard;
+    d["listening"] = recording || wantTranscribe;
     d["busy"] = busy || hasPending;
     d["err"] = lastErr;
     String o;
@@ -3701,6 +3885,7 @@ void setupWeb() {
     d["night"] = nightOn;
     d["best"] = reactBest;
     d["call"] = callActive;
+    d["mic"] = micReady;
     String o;
     serializeJson(d, o);
     server.send(200, "application/json", o);
@@ -3923,7 +4108,8 @@ void buttonLoop() {
   }
   if (down && pressed && !longDone) {
     if (callActive && now - pressStart > 800) { longDone = true; ancsAction = 0; }            // hold = answer call
-    else if (!callActive && now - pressStart > 1500) {                                       // hold = study mode on/off
+    else if (!callActive && micReady && now - pressStart > 300) { longDone = true; startListening(); }  // hold = talk
+    else if (!callActive && !micReady && now - pressStart > 1500) {                          // no mic: hold = study mode
       longDone = true;
       wake();
       if (studyOn) stopStudy(); else startStudy(25, 5);
@@ -3931,6 +4117,7 @@ void buttonLoop() {
   }
   if (!down && pressed) {
     pressed = false;
+    if (recording) { stopListening(); return; }            // let go = done talking
     if (longDone || now - pressStart < 30) return;
     wake();
     if (callActive) { ancsAction = 1; return; }                 // tap = decline call
@@ -3987,6 +4174,7 @@ void setup() {
   setupVoiceBuffer();
   xTaskCreatePinnedToCore(soundTask, "sound", 16384, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(playerTask, "voice", 4096, nullptr, 3, nullptr, 0);
+  setupMic();
 
   WiFi.persistent(false);
   WiFi.setHostname("cheo");
@@ -4057,6 +4245,7 @@ void loop() {
     danceStyle = random(3);
   }
   if (wantGame != G_NONE && !talkActive()) { startGame(wantGame, false); wantGame = G_NONE; }
+  micLoop();
   if (wantBriefing && !talkActive()) {
     wantBriefing = false;
     wake();
