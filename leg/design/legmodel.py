@@ -100,12 +100,15 @@ def servo_body(sv):
             (1, sv.cyl(0, 0, CASE_TOP, 27.0, CASE_HW)),
             (1, sv.box(2, 12, -4, 4, CASE_TOP, 26.0))]
 
+PIN_R = 1.5        # pivot pin radius (3 mm pin)
+PIN_IN = 1.8       # how far the pin goes into the shoe
+
 def shoe(sv, floor=SHOE):
     """cap that slides onto the servo's bottom from the long end; the pivot screw threads into it"""
     w = 1.2
     return [(1, sv.box(CASE_L0 - CLR - w, CASE_L1 + CLR, -CASE_HW - CLR - w, CASE_HW + CLR + w, -floor, 3.0)),
             (-1, sv.box(CASE_L0 - CLR, CASE_L1 + CLR + 1, -CASE_HW - CLR, CASE_HW + CLR, 0, 3.5)),
-            (-1, sv.cyl(0, 0, -floor - 1, 1, 0.8))]          # M2 pivot screw threads in here
+            (-1, sv.cyl(0, 0, -floor - 1, 1, PIN_R + 0.3))]  # the bracket's pivot pin turns in this hole
 
 def ring(sv, x1=TAB_L1 + 0.5):
     return [(1, sv.box(TAB_L0, x1, -RING_HW, RING_HW, 4.0, TAB_Z)),
@@ -124,8 +127,9 @@ def bracket(sv, d, vmin=-PHW, vmax=PHW, rd=PHW):
         out.append((1, sv.cyl(0, 0, z0, z1, rd)))
         out.append((1, obox_local(sv, Rl, 0, BR1, vmin, vmax, z0, z1)))
     out.append((1, obox_local(sv, Rl, BR0, BR1, vmin, vmax, PIV0, HRN1)))
-    out.append((-1, sv.cyl(0, 0, PIV0 - 1, PIV1 + 1, 1.1)))                  # M2 pivot screw (the joint turns on it)
-    out.append((-1, sv.cyl(0, 0, PIV0 - 1, PIV0 + 2.0, 2.3)))                # counterbore for its head
+    # printed pivot pin: snaps into the hole in the shoe (no screw needed)
+    out.append((1, sv.cyl(0, 0, PIV1 - 0.5, -SHOE + PIN_IN - 0.6, PIN_R)))
+    out.append((1, sv.cyl(0, 0, -SHOE + PIN_IN - 0.6, -SHOE + PIN_IN, PIN_R - 0.4)))   # rounded-off tip so it clicks in
     out.append((-1, sv.cyl(0, 0, HRN0 - 1, HRN1 + 1, 3.0)))                  # reach the horn screw
     # horn pocket: the hub + the triangle-shaped arm, pointing toward the bridge
     pz0, pz1 = HRN0 - 0.3, HRN0 + POCKET_DEPTH

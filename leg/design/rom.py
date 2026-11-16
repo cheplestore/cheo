@@ -27,6 +27,11 @@ def sweep(ji, direction, other_leg=False, step=1.0):
     sta = [(nm, g) for nm, (ln, g) in grids.items() if ln in above]
     o, a = sv.axis()
     movP = np.vstack([g.pts for nm, g in mov]); movN = np.concatenate([[nm] * len(g.pts) for nm, g in mov])
+    # the pivot pin turns inside its own shoe's hole: both are round about this joint's axis,
+    # so points that close to the axis can never collide with the shoe (the 0.3 mm gap is below voxel size)
+    d = movP - o; radial = np.linalg.norm(d - np.outer(d @ a, a), axis=1)
+    near_axis = radial < L.PIN_R + 0.9
+    own_shoe = sv.name + ' shoe'
     if other_leg:   # the right leg (mirror) standing straight, everything below the pelvis
         rl = [(nm, g) for nm, (ln, g) in grids.items() if ln != 'pelvis_test_mount']
     ang = 0.0
@@ -36,6 +41,8 @@ def sweep(ji, direction, other_leg=False, step=1.0):
         P = (movP - o) @ R.T + o
         for nm, g in sta:
             h = g.hit(P)
+            if nm == own_shoe or movN[0] == own_shoe: h = h & ~near_axis if nm == own_shoe else h
+            if nm != own_shoe and own_shoe in movN: h = h & ~(near_axis & (movN == own_shoe))
             if h.any(): return ang, nm, movN[h][0]
         if other_leg:
             Pm = mirror_y(P)   # check my moved points against the mirrored (right) leg = mirror my points into left-leg space
