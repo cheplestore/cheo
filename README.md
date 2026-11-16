@@ -34,15 +34,13 @@ After that, change Wi-Fi networks and the Groq key at `cheo.local/settings`. If 
 
 ## Releasing an update (OTA)
 
-1. Raise `FW_VERSION` in `cdbos/cdbos.ino`.
-2. Check that the `SETUP_` lines are `""`.
-3. For each board, select it in Tools, then **Sketch → Export Compiled Binary**. Rename the main `.bin` (not the bootloader/partitions/merged ones):
-   - ESP32-C6 → `cheo.bin`
-   - ESP32-S3 → `cheo-s3.bin`
-4. Commit the `.bin` files to the repo root.
-5. **Last**, set `version.txt` to the new number. Only bump it after the matching `.bin` files are uploaded, or Cheo will install the old firmware over and over.
+**GitHub builds it for you.** When new code in `cdbos/` is merged into `main`, the "Build Cheo firmware" workflow (Actions tab):
+1. Checks that no passwords or keys are in the code.
+2. Compiles `cdbos/cdbos.ino` for the ESP32-S3.
+3. Saves it as `cheo-s3.bin` and sets `version.txt` to the code's `FW_VERSION`.
 
 Cheo checks 1 minute after he starts and every 6 hours, or when you say "check for updates". GitHub can take about 5 minutes to show new files.
+So to release an update: raise `FW_VERSION` in the code and merge. To rebuild by hand: Actions tab → "Build Cheo firmware" → Run workflow.
 
 ## Wiring
 

@@ -2,3 +2,4 @@ build/
 *.elf
 *.map
 .DS_Store
+cdbos/build/
