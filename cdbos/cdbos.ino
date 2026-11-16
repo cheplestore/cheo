@@ -2,6 +2,7 @@
   =====================================================================
    CDBos v11  -  Cheo Desk Buddy Operating System   (ESP32-C6 or ESP32-S3)
   =====================================================================
+   NEW IN v13: say "Hey Cheo"! Wake word trained on your voice (Edge Impulse), runs on the S3 itself
    NEW IN v12: talk to Cheo! INMP441 microphone: hold his button (or the web button) and talk (S3 only)
    NEW IN v11: smooth voice (saves up ~1.5 s of voice before talking, no more stutter)
    NEW IN v10
@@ -43,8 +44,15 @@
 // =====================================================================
 //  SETTINGS
 // =====================================================================
-#define FW_VERSION 12                      // bump this every GitHub release
+#define FW_VERSION 13                      // bump this every GitHub release
 #define OS_NAME "CDBos"
+#if __has_include("build_num.h")
+#include "build_num.h"                     // GitHub writes this when it builds the firmware
+#endif
+#ifndef BUILD_NUM
+#define BUILD_NUM 0
+#endif
+const long FW_BUILD = FW_VERSION * 1000L + BUILD_NUM;   // what version.txt holds
 #if CONFIG_IDF_TARGET_ESP32S3
   #define BOARD_NAME "ESP32-S3"
   const char* FW_FILE = "cheo-s3.bin";     // GitHub file for S3 Cheos
@@ -156,6 +164,15 @@ const uint32_t HOLD_TIME = 20000, TRANS_MS = 520;
 #define C_CLOUD 0xCE79
 uint16_t eyeC = 0x05FF;  // eye color (changes with themes / night / rainbow)
 #define C_EYE eyeC
+
+// ---- "Hey Cheo" wake word: GitHub adds wake_model.h when a trained model is in the repo's wake/ folder ----
+#if HAS_MIC && __has_include("wake_model.h")
+#include "wake_model.h"
+#define HAS_WAKE 1
+#else
+#define HAS_WAKE 0
+#endif
+const float WAKE_THRESHOLD = 0.80;         // how sure he must be that he heard "Hey Cheo" (0 to 1)
 
 // =====================================================================
 //  TYPES
@@ -419,6 +436,8 @@ void rainCheck();
 String countdownText();
 int petLevel();
 extern bool micReady;
+extern String eiKey;
+extern bool wakeOn;
 String asciiOnly(const String& s);
 void drawCentered(const String& s, int y, int size, uint16_t c);
 bool someoneAround();
@@ -566,6 +585,8 @@ void loadSettings() {
   hsSsid = prefs.getString("hs_ssid", "");
   hsPass = prefs.getString("hs_pass", "");
   groqKey = prefs.getString("groq", "");
+  eiKey = prefs.getString("ei", "");
+  wakeOn = prefs.getUChar("wake", 1);
   // first USB upload: copy the SETUP_ values in
   if (strlen(SETUP_WIFI_SSID)) addNetwork(SETUP_WIFI_SSID, SETUP_WIFI_PASS);
   if (strlen(SETUP_HOTSPOT_SSID)) {
@@ -1714,6 +1735,7 @@ String buildSys() {
   if (nightActive) s += " It's night mode, keep it short and calm.";
   s += " Wi-Fi: " + (WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("none")) + ".";
   if (micReady) s += " The user can talk to you out loud; their words come from speech-to-text, so guess past small word mistakes.";
+  if (HAS_WAKE && wakeOn) s += " They can wake you by saying Hey Cheo.";
   if (weatherOk) s += " Weather in " + weatherCity + ": " + String((int)round(weatherTemp)) + (USE_F ? "F " : "C ") + weatherLabel(weatherCode) +
                      ", high " + String((int)round(weatherHi)) + ", low " + String((int)round(weatherLo)) + (rainInHours ? ", rain likely in " + String(rainInHours) + " h" : String("")) + ".";
   bool camOnline = millis() - lastCamPacket < 10000;
@@ -1829,6 +1851,47 @@ bool micReady = false, wantTranscribe = false;
 volatile float micLevel = 0;
 uint32_t listenStart = 0;
 String lastHeard = "";
+// ---- v13: "Hey Cheo" wake word + training ----
+String eiKey;                          // Edge Impulse API key (Settings page)
+bool wakeOn = true;                    // listen for "Hey Cheo"
+volatile bool wakeHeard = false;
+volatile float wakeScore = 0, noiseLevel = 0.05;
+bool handsFree = false, heardSpeech = false;
+uint32_t quietSince = 0;
+String trainLabel = "hey_cheo", trainMsg = "";
+int trainLeft = 0, trainDone = 0, trainFail = 0, trainTotal = 0;
+bool trainRec = false;
+uint32_t trainNextAt = 0;
+#if HAS_WAKE
+const int WQ_N = EI_CLASSIFIER_SLICE_SIZE * 4;
+static int16_t wakeQ[WQ_N];
+volatile uint32_t wqHead = 0, wqTail = 0;
+static int16_t sliceBuf[EI_CLASSIFIER_SLICE_SIZE];
+static int wakeGet(size_t off, size_t len, float* out) { numpy::int16_to_float(&sliceBuf[off], out, len); return 0; }
+
+void wakeTask(void*) {                 // runs the "Hey Cheo" model on the microphone all the time
+  run_classifier_init();
+  for (;;) {
+    if (!wakeOn || recording || trainLeft > 0) { wqTail = wqHead; vTaskDelay(pdMS_TO_TICKS(50)); continue; }
+    uint32_t have = wqHead - wqTail;
+    if (have > (uint32_t)(WQ_N - EI_CLASSIFIER_SLICE_SIZE)) { wqTail = wqHead - EI_CLASSIFIER_SLICE_SIZE; have = EI_CLASSIFIER_SLICE_SIZE; }  // fell behind: skip ahead
+    if (have < (uint32_t)EI_CLASSIFIER_SLICE_SIZE) { vTaskDelay(pdMS_TO_TICKS(10)); continue; }
+    for (int i = 0; i < EI_CLASSIFIER_SLICE_SIZE; i++) sliceBuf[i] = wakeQ[(wqTail + i) % WQ_N];
+    wqTail += EI_CLASSIFIER_SLICE_SIZE;
+    signal_t sig;
+    sig.total_length = EI_CLASSIFIER_SLICE_SIZE;
+    sig.get_data = &wakeGet;
+    ei_impulse_result_t res = { 0 };
+    if (run_classifier_continuous(&sig, &res, false) != EI_IMPULSE_OK) continue;
+    float sc = 0;
+    for (size_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++)
+      if (strstr(res.classification[i].label, "cheo")) sc = res.classification[i].value;
+    wakeScore = sc;
+    if (sc >= WAKE_THRESHOLD && !talkActive() && !songPlaying) { wakeHeard = true; run_classifier_init(); }
+  }
+}
+#endif
+
 
 void micTask(void*) {
 #if HAS_MIC
@@ -1846,8 +1909,12 @@ void micTask(void*) {
       if (v < -32768) v = -32768;
       sum += fabsf(v);
       if (recording && recLen < recMax) recBuf[recLen++] = (int16_t)v;
+#if HAS_WAKE
+      if (!recording) { wakeQ[wqHead % WQ_N] = (int16_t)v; wqHead++; }
+#endif
     }
     micLevel = micLevel * 0.6f + (sum / n / 3000.0f) * 0.4f;   // for the eyes / level bar
+    if (!recording) noiseLevel = noiseLevel * 0.995f + micLevel * 0.005f;   // how loud the room is
   }
 #else
   vTaskDelete(nullptr);
@@ -1875,6 +1942,8 @@ void startListening() {
   delay(150);                                         // don't record the beep
   recLen = 0;
   listenStart = millis();
+  heardSpeech = false;
+  quietSince = 0;
   recording = true;
   goScreen(SCR_EYES);
   holdUntil = 0;
@@ -1883,6 +1952,7 @@ void startListening() {
 void stopListening() {
   if (!recording) return;
   recording = false;
+  handsFree = false;
   sound(9);
   if (recLen < (uint32_t)MIC_RATE * 4 / 10) { lastErr = "Too short. Hold the button the whole time you talk."; return; }
   wantTranscribe = true;
@@ -1949,6 +2019,25 @@ String transcribe() {
 
 void micLoop() {
   if (recording && millis() - listenStart > (uint32_t)MIC_MAX_SEC * 1000UL) stopListening();   // 10 s max
+  // after "Hey Cheo": stop listening by himself when you stop talking
+  if (recording && handsFree && trainLeft == 0) {
+    float lv = micLevel, thr = noiseLevel * 2.5f + 0.04f;
+    if (lv > thr) { heardSpeech = true; quietSince = 0; }
+    else if (heardSpeech) {
+      if (!quietSince) quietSince = millis();
+      else if (millis() - quietSince > 900) stopListening();
+    }
+    if (!heardSpeech && millis() - listenStart > 4000) { recording = false; handsFree = false; sound(9); }   // you didn't say anything
+  }
+  if (wakeHeard) {
+    wakeHeard = false;
+    if (!recording && trainLeft == 0 && !talkActive() && !wantTranscribe && !hasPending) {
+      handsFree = true;
+      setMood(SURPRISED, false);
+      moodUntil = millis() + 3000;
+      startListening();
+    }
+  }
   if (wantTranscribe && !talkActive()) {
     wantTranscribe = false;
     thinking = true;
@@ -1967,6 +2056,82 @@ void micLoop() {
       moodUntil = millis() + 4000;
       speak("Sorry, I didn't catch that.", CONFUSED);
     }
+  }
+}
+
+
+// ---- v13: record 1-second samples and send them to Edge Impulse (to teach "Hey Cheo") ----
+bool uploadSample(const String& label) {
+  if (WiFi.status() != WL_CONNECTED) { trainMsg = "No Wi-Fi."; return false; }
+  if (eiKey.length() < 10) { trainMsg = "Add your Edge Impulse API key on the Settings page first."; return false; }
+  const char* B = "----cheoTrain7MA4YWxk";
+  String head = String("--") + B + "\r\nContent-Disposition: form-data; name=\"data\"; filename=\"" + label + ".wav\"\r\nContent-Type: audio/wav\r\n\r\n";
+  String tail = String("\r\n--") + B + "--\r\n";
+  uint32_t pcm = recLen * 2;
+  size_t total = head.length() + 44 + pcm + tail.length();
+  uint8_t* body = psramFound() ? (uint8_t*)ps_malloc(total) : nullptr;
+  if (!body) body = (uint8_t*)malloc(total);
+  if (!body) { trainMsg = "Out of memory."; return false; }
+  size_t p = 0;
+  memcpy(body + p, head.c_str(), head.length()); p += head.length();
+  wavHeader(body + p, pcm, MIC_RATE); p += 44;
+  memcpy(body + p, recBuf, pcm); p += pcm;
+  memcpy(body + p, tail.c_str(), tail.length()); p += tail.length();
+  bool ok = false;
+  WiFiClientSecure c;
+  c.setInsecure();
+  HTTPClient h;
+  h.setTimeout(15000);
+  if (h.begin(c, "https://ingestion.edgeimpulse.com/api/training/files")) {
+    h.addHeader("x-api-key", eiKey);
+    h.addHeader("x-label", label);
+    h.addHeader("x-add-date-id", "1");
+    h.addHeader("Content-Type", String("multipart/form-data; boundary=") + B);
+    int code = h.POST(body, total);
+    String resp = h.getString();
+    ok = code == 200;
+    if (!ok) trainMsg = "Upload error " + String(code) + ": " + resp.substring(0, 120);
+    h.end();
+  }
+  free(body);
+  return ok;
+}
+
+void startTraining(String label, int n) {
+  if (!micReady) { trainMsg = "No microphone found."; return; }
+  if (eiKey.length() < 10) { trainMsg = "Add your Edge Impulse API key on the Settings page first."; return; }
+  if (label != "hey_cheo" && label != "noise" && label != "unknown") return;
+  trainLabel = label;
+  trainLeft = constrain(n, 1, 50);
+  trainDone = trainFail = 0;
+  trainMsg = "";
+  trainNextAt = millis() + 800;
+  wake();
+}
+
+void trainLoop() {
+  if (trainLeft <= 0) return;
+  if (!trainRec) {
+    if (millis() < trainNextAt || talkActive()) return;
+    sound(8);                                 // beep = say it now
+    delay(150);
+    recLen = 0;
+    listenStart = millis();
+    recording = true;
+    trainRec = true;
+    goScreen(SCR_EYES);
+    holdUntil = 0;
+    return;
+  }
+  if (recLen >= (uint32_t)MIC_RATE) {         // got 1 second
+    recording = false;
+    trainRec = false;
+    recLen = MIC_RATE;
+    if (uploadSample(trainLabel)) { trainDone++; trainTotal++; } else trainFail++;
+    trainLeft--;
+    if (trainFail >= 3 && trainDone == 0) trainLeft = 0;   // something is wrong: stop and show the error
+    trainNextAt = millis() + 700;
+    if (trainLeft == 0) sound(trainFail ? 35 : 11);
   }
 }
 
@@ -2495,7 +2660,8 @@ void drawEyesFace() {
     drawCentered(s, 92, 2, C_EYE);
   }
   if (recording) {                                       // listening bar
-    drawCentered("listening...", 98, 1, C_EYE);
+    if (trainLeft > 0) drawCentered(trainLabel == "hey_cheo" ? String("say: Hey Cheo!") : trainLabel == "noise" ? String("shh... recording noise") : String("say any other word"), 98, 1, C_SUN);
+    else drawCentered("listening...", 98, 1, C_EYE);
     int w = (int)(min((float)micLevel, 1.0f) * 100);
     canvas.drawRoundRect(29, 110, 102, 8, 3, C_DGRAY);
     if (w > 1) canvas.fillRoundRect(30, 111, w, 6, 2, C_EYE);
@@ -3628,14 +3794,14 @@ bool otaCheck(bool announce) {
     if (announce) speak("I couldn't reach my update page.", CONFUSED);
     return false;
   }
-  int v = h.getString().toInt();
+  long v = h.getString().toInt();
   h.end();
-  Serial.printf("Update check: GitHub has v%d, I'm v%d\n", v, FW_VERSION);
-  if (v <= FW_VERSION) {
+  Serial.printf("Update check: GitHub has %ld, I'm %ld\n", v, FW_BUILD);
+  if (v <= FW_BUILD) {
     if (announce) speak("I'm already up to date! I'm version " + String(FW_VERSION) + ".", HAPPY);
     return false;
   }
-  speak("Ooh, version " + String(v) + " is out! Updating now. Don't unplug me.", STARS);
+  speak("Ooh, version " + String(v >= 1000 ? v / 1000 : v) + " is out! Updating now. Don't unplug me.", STARS);
   uint32_t t0 = millis();
   while ((talkActive() || songPlaying) && millis() - t0 < 20000) { render(); delay(20); }
   ringing = false;
@@ -3689,6 +3855,8 @@ button.b{background:#08c;color:#fff}input,select{background:#0b1020;color:#fff;b
 <div class=c><input id=q placeholder="Talk to Cheo..." onkeydown="if(event.key=='Enter')ask()"><button class=b onclick=ask()>Send</button>
 <button id=mic class=b style="touch-action:none;-webkit-user-select:none;user-select:none" oncontextmenu="return false" onpointerdown="micOn()" onpointerup="micOff()" onpointerleave="micOff()">&#127908; Hold to talk</button>
 <div id=r></div><small id=err style="color:#f88"></small></div>
+<div class=c><b>"Hey Cheo"</b> <small id=wk></small><br><label><input type=checkbox id=wo onchange="g('/wake?on='+(this.checked?1:0))"> Listen for "Hey Cheo"</label><br>
+<a href=/train>Teach him "Hey Cheo"</a> <small>(record your voice, about 15 minutes)</small></div>
 <div class=c><b>Pet</b> <small id=lv></small><div id=pet></div>
 <button onclick="pa('feed&f=cheese')">&#129472; Cheese</button><button onclick="pa('feed&f=cookie')">&#127850;</button><button onclick="pa('feed&f=pizza')">&#127829;</button><button onclick="pa('feed&f=apple')">&#127822;</button><button onclick="pa('feed&f=cake')">&#127856;</button><button onclick="pa('feed&f=battery')">&#128267;</button><br>
 <button onclick="pa('pet')">Pet him</button><button id=pt onclick="pa('toggle')">Pet mode</button></div>
@@ -3734,7 +3902,7 @@ var load=()=>{
 fetch('/net').then(x=>x.json()).then(j=>{net.textContent=j.os+' v'+j.ver+' · '+j.board+' · '+(j.ssid||'no Wi-Fi')+' · '+j.ip+' · iPhone '+(j.ble?'connected':'not connected')+' · camera '+(j.cam?'on':'off');
 vol.value=j.vol;if(j.err&&!waiting)err.textContent=j.err;lv.textContent='level '+j.lv+' · '+j.xp+' XP';
 pet.innerHTML=j.pon?bar('Food',j.food)+bar('Fun',j.fun)+bar('Energy',j.en):'<small>pet mode is off</small>';pt.textContent=j.pon?'Turn pet mode off':'Turn pet mode on';
-eye.value=j.eye;nt.checked=j.night;best.textContent=j.best?'best: '+j.best+' ms':'';callc.style.display=j.call?'block':'none'});
+wk.textContent=j.wake?(j.wakeon?'listening':'off'):'not trained yet';wo.checked=j.wakeon;eye.value=j.eye;nt.checked=j.night;best.textContent=j.best?'best: '+j.best+' ms':'';callc.style.display=j.call?'block':'none'});
 fetch('/rems').then(x=>x.json()).then(a=>{rems.innerHTML=a.length?a.map((t,i)=>`<div class=row><span>${esc(t)}</span><button onclick="g('/delrem?i=${i}').then(load)">✕</button></div>`).join(''):'<small>none</small>'});
 fetch('/cds').then(x=>x.json()).then(a=>{cds.innerHTML=a.length?a.map((c,i)=>`<div class=row><span>${esc(c.l)}</span><span>${c.d==0?'TODAY!':c.d+(c.d==1?' day':' days')} <button onclick="g('/cddel?i=${i}').then(load)">✕</button></span></div>`).join(''):'<small>none yet</small>'});
 fetch('/memory').then(x=>x.text()).then(t=>{let l=t.split('\n').filter(x=>x);mem.innerHTML=l.length?l.map(x=>'<div class=row>'+esc(x)+'</div>').join(''):'<small>nothing yet</small>'})}
@@ -3756,7 +3924,8 @@ small{color:#89a}a{color:#3cf}.row{display:flex;justify-content:space-between;al
 <input id=ss placeholder="Network name"><input id=pw type=password placeholder="Password (blank if none)">
 <button class=b onclick=add()>Save network</button><div id=msg></div></div>
 <div class=c><b>iPhone hotspot</b> <small>(backup when nothing else works)</small><input id=hs placeholder="Hotspot name"><input id=hp type=password placeholder="Password (blank = keep)">
-<b>Groq key</b><input id=gk type=password placeholder="Groq key"><button class=b onclick=save()>Save</button></div>
+<b>Groq key</b><input id=gk type=password placeholder="Groq key">
+<b>Edge Impulse API key</b> <small>(for teaching "Hey Cheo")</small><input id=ek type=password placeholder="ei_..."><button class=b onclick=save()>Save</button></div>
 <div class=c><b>Memory backup</b> <small>(copy this before moving Cheo to a new board, paste it back after)</small>
 <textarea id=bk rows=5 style="width:95%;background:#0b1020;color:#fff;border:1px solid #345;border-radius:8px;font-size:14px"></textarea>
 <button onclick="post('/restore',{m:bk.value}).then(t=>alert(t))">Restore memory</button></div>
@@ -3769,14 +3938,40 @@ var esc=(s)=>{return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 var bars=(r)=>{return r>-55?'▂▄▆█':r>-67?'▂▄▆':r>-78?'▂▄':'▂'}
 fetch('/memory').then(r=>r.text()).then(t=>{bk.value=t});
 var load=()=>{fetch('/wifi').then(r=>r.json()).then(j=>{ver.textContent=j.ver;cur.textContent=j.cur?'on '+j.cur:'not connected';hs.value=j.hs;
-gk.placeholder=j.key?'saved ✓ (blank keeps it)':'paste your Groq key';
+gk.placeholder=j.key?'saved ✓ (blank keeps it)':'paste your Groq key';ek.placeholder=j.ei?'saved ✓ (blank keeps it)':'ei_...';
 saved.innerHTML=j.nets.length?j.nets.map((n,i)=>`<div class=row><span>${esc(n)}${n==j.cur?' ✓':''}</span><button onclick="g('/delwifi?i=${i}').then(load)">✕</button></div>`).join(''):'<small>none saved yet</small>'})}
 var pick=(el)=>{ss.value=el.dataset.s;pw.value='';pw.focus()}
 var scan=()=>{found.innerHTML='<small>searching...</small>';var p=()=>{fetch('/scan').then(r=>r.json()).then(j=>{if(j.busy)return setTimeout(p,1200);
 found.innerHTML=j.list.length?j.list.map(n=>`<div class="row n" data-s="${esc(n.s)}" onclick="pick(this)"><span>${esc(n.s)}${n.k?' <small>(saved)</small>':''}</span><small>${n.lock?'🔒':'open'} ${bars(n.r)}</small></div>`).join(''):'<small>nothing found</small>'})};p()}
 var add=()=>{if(!ss.value)return;msg.textContent='saving...';post('/addwifi',{s:ss.value,p:pw.value}).then(t=>{msg.textContent=t;pw.value='';load()})}
-var save=()=>{post('/save',{hs:hs.value,hp:hp.value,gk:gk.value}).then(t=>{alert(t);hp.value='';gk.value='';load()})}
+var save=()=>{post('/save',{hs:hs.value,hp:hp.value,gk:gk.value,ek:ek.value}).then(t=>{alert(t);hp.value='';gk.value='';ek.value='';load()})}
 load();
+</script></body></html>)HTML";
+const char TRAIN_PAGE[] PROGMEM = R"HTML(<!DOCTYPE html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1"><title>Teach Cheo</title>
+<style>body{font-family:-apple-system,sans-serif;background:#0b1020;color:#dfe8ff;margin:0 auto;padding:14px;max-width:520px}
+h1{margin:4px 0 2px;color:#3cf}.c{background:#151c33;border-radius:14px;padding:12px;margin:10px 0}
+button{background:#1d2a4a;color:#cff;border:0;border-radius:10px;padding:10px 14px;margin:4px 3px 0 0;font-size:16px}
+button.b{background:#08c;color:#fff}small{color:#89a}a{color:#3cf}</style></head><body>
+<h1>Teach Cheo "Hey Cheo"</h1>
+<div class=c><b>Before you start</b><br>1. Make a free account at <a href=https://studio.edgeimpulse.com target=_blank>edgeimpulse.com</a> and create a project named <b>cheo-wake</b>.<br>
+2. In the project: <b>Dashboard &rarr; Keys</b>, copy the API key (starts with <b>ei_</b>) and paste it on the <a href=/settings>Settings</a> page.<br>
+3. Tap a button below. Cheo beeps 10 times; each beep records 1 second.</div>
+<div class=c><b>"Hey Cheo"</b> &mdash; do this about <b>10 times</b> (100 clips)<br><small>Say it right after each beep. Mix it up: loud, quiet, fast, slow, close, across the room.</small><br>
+<button class=b onclick="t('hey_cheo')">Record 10 &times; "Hey Cheo"</button></div>
+<div class=c><b>Background noise</b> &mdash; about <b>5 times</b> (50 clips)<br><small>Don't talk. Quiet room, TV on, music, typing, the dog, walking around.</small><br>
+<button onclick="t('noise')">Record 10 &times; noise</button></div>
+<div class=c><b>Other words</b> &mdash; about <b>5 times</b> (50 clips)<br><small>Say anything except "Hey Cheo": hey, cheese, hello, Cheple, okay, names, numbers...</small><br>
+<button onclick="t('unknown')">Record 10 &times; other words</button></div>
+<div class=c><b id=st>ready</b><br><small id=tm></small></div>
+<a href=/>&larr; Back</a>
+<script>
+var g=(u)=>{return fetch(u).then(r=>r.text())}
+var t=(l)=>{g('/train/start?l='+l+'&n=10').then(()=>setTimeout(poll,300))}
+var nm={hey_cheo:'"Hey Cheo"',noise:'noise',unknown:'other words'}
+var poll=()=>{fetch('/train/status').then(r=>r.json()).then(j=>{st.textContent=j.left?('Recording '+nm[j.label]+': '+j.done+' sent, '+j.left+' to go'):(j.done?('Done! '+j.done+' clips sent'+(j.fail?', '+j.fail+' failed':'')):'ready');
+tm.textContent=(j.msg?j.msg+' ':'')+'Clips sent so far: '+j.total;if(j.left)setTimeout(poll,600)})}
+poll();
 </script></body></html>)HTML";
 
 void handleScan() {
@@ -3835,6 +4030,21 @@ void setupWeb() {
     if (pendingQ.length()) { hasPending = true; busy = true; }
     server.send(200, "text/plain", "ok");
   });
+  server.on("/train", []() { server.send_P(200, "text/html", TRAIN_PAGE); });
+  server.on("/train/start", []() { startTraining(server.arg("l"), server.arg("n").toInt()); server.send(200, "text/plain", "ok"); });
+  server.on("/train/status", []() {
+    JsonDocument d;
+    d["label"] = trainLabel;
+    d["left"] = trainLeft;
+    d["done"] = trainDone;
+    d["fail"] = trainFail;
+    d["total"] = trainTotal;
+    d["msg"] = trainMsg;
+    String o;
+    serializeJson(d, o);
+    server.send(200, "application/json", o);
+  });
+  server.on("/wake", []() { wakeOn = server.arg("on") == "1"; prefs.putUChar("wake", wakeOn ? 1 : 0); server.send(200, "text/plain", "ok"); });
   server.on("/mic", []() {
     if (server.arg("on") == "1") startListening(); else stopListening();
     server.send(200, "text/plain", micReady ? "ok" : "no mic");
@@ -3886,6 +4096,9 @@ void setupWeb() {
     d["best"] = reactBest;
     d["call"] = callActive;
     d["mic"] = micReady;
+    d["wake"] = (bool)HAS_WAKE;
+    d["wakeon"] = wakeOn;
+    d["build"] = FW_BUILD;
     String o;
     serializeJson(d, o);
     server.send(200, "application/json", o);
@@ -4052,6 +4265,7 @@ void setupWeb() {
     d["cur"] = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("");
     d["hs"] = hsSsid;
     d["key"] = groqKey.length() > 10;
+    d["ei"] = eiKey.length() > 10;
     JsonArray a = d["nets"].to<JsonArray>();
     for (int i = 0; i < netCount; i++) a.add(nets[i].ssid);
     String o;
@@ -4080,6 +4294,9 @@ void setupWeb() {
     if (hs != hsSsid) { hsSsid = hs; prefs.putString("hs_ssid", hsSsid); }
     if (hp.length()) { hsPass = hp; prefs.putString("hs_pass", hsPass); }
     if (gk.length()) { groqKey = gk; prefs.putString("groq", groqKey); }
+    String ek = server.arg("ek");
+    ek.trim();
+    if (ek.length()) { eiKey = ek; prefs.putString("ei", eiKey); }
     server.send(200, "text/plain", "Saved!");
     if (apMode) restartAt = millis() + 1500;
   });
@@ -4175,6 +4392,9 @@ void setup() {
   xTaskCreatePinnedToCore(soundTask, "sound", 16384, nullptr, 2, nullptr, 0);
   xTaskCreatePinnedToCore(playerTask, "voice", 4096, nullptr, 3, nullptr, 0);
   setupMic();
+#if HAS_WAKE
+  if (micReady) { xTaskCreatePinnedToCore(wakeTask, "wake", 8192, nullptr, 1, nullptr, 1); Serial.println("Wake word: listening for Hey Cheo"); }
+#endif
 
   WiFi.persistent(false);
   WiFi.setHostname("cheo");
@@ -4246,6 +4466,7 @@ void loop() {
   }
   if (wantGame != G_NONE && !talkActive()) { startGame(wantGame, false); wantGame = G_NONE; }
   micLoop();
+  trainLoop();
   if (wantBriefing && !talkActive()) {
     wantBriefing = false;
     wake();
