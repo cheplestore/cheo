@@ -13,6 +13,9 @@
 | `foot` | 1 | Prints flat |
 | `shoe_3.0mm` | 5 | One slides onto the bottom of each servo |
 
+## Fit test first
+Print `stl/fit_test/fit_ring.stl` + `stl/fit_test/fit_bracket.stl` + a shoe to check one joint before printing a whole leg.
+
 ## Hardware
 - 5x MG90S per leg, with their tab screws and single-arm horns
 - 5x M2x5 screws (the pivot each joint turns on, into the shoe)
@@ -28,4 +31,4 @@
 If a bracket is too tight or loose between the horn and the shoe, use the 2.5 or 3.5 mm shoe.
 
 ## Sizes
-Hip roll axis to floor: 177 mm. Hip roll axes 18 mm apart, feet centered 52 mm apart (26 mm from the center line).
+Hip roll axis to floor: 177 mm. Hip roll axes 20 mm apart, feet centered 52 mm apart (26 mm from the center line).

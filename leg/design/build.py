@@ -1,12 +1,15 @@
 import numpy as np, time, sys
 import legmodel as L
-from legmodel import OBox, Cyl
+from legmodel import OBox, Cyl, Prism
 import csg
 
 def prim_solid(p):
     if isinstance(p, OBox):
         h = p.h; s = csg.box(-h[0], h[0], -h[1], h[1], -h[2], h[2])
         R = p.R; c = p.c
+    elif isinstance(p, Prism):
+        s = csg.prism('z', [tuple(q) for q in p.pts], p.w0, p.w1)
+        R = p.R; c = p.o
     else:
         a = p.a; e1 = np.cross(a, [1, 0, 0] if abs(a[0]) < .9 else [0, 1, 0]); e1 /= np.linalg.norm(e1); e2 = np.cross(a, e1)
         R = np.column_stack([e1, e2, a]); c = p.c
