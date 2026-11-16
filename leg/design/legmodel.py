@@ -15,14 +15,14 @@ POCKET_CLR = 0.4
 POCKET_DEPTH = 2.4
 ARM_EXTRA = 2.0    # arm part of the pocket made 2 mm longer (user fit test)
 CLR = 0.2                           # fit clearance per side
-SHOE_CLR = 0.45    # shoe is looser (prints floor-down, first layer squishes inward) - user fit test
+SHOE_CLR = 0.25    # shoe side fit
 
 # ---------------- design values ----------------
 RING_W = 2.5        # wall around the servo case
 RING_HW = CASE_HW + CLR + RING_W    # 8.65
 PL = 3.5            # bracket plate thickness
 SHOE = 3.0          # shoe floor under the servo (2.5 / 3.0 / 3.5 mm versions fine-tune the fit)
-GAP = 0.8           # gap between shoe and bracket plate
+GAP = 1.6           # gap between shoe and bracket plate (0.8 was too tight in the fit test)
 PIV0, PIV1 = -(SHOE + GAP + PL), -(SHOE + GAP)        # pivot plate z_s range
 HRN0 = HORN_TOP - 1.6; HRN1 = HRN0 + 4.0               # horn plate z_s range (horn sits in a 1.8 mm pocket)
 BR0, BR1 = 15.0, 20.0                                  # bridge distance from the joint axis
