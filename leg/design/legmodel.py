@@ -15,6 +15,7 @@ POCKET_CLR = 0.4
 POCKET_DEPTH = 2.4
 ARM_EXTRA = 2.0    # arm part of the pocket made 2 mm longer (user fit test)
 CLR = 0.2                           # fit clearance per side
+SHOE_CLR = 0.45    # shoe is looser (prints floor-down, first layer squishes inward) - user fit test
 
 # ---------------- design values ----------------
 RING_W = 2.5        # wall around the servo case
@@ -107,8 +108,10 @@ PIN_IN = 1.8       # how far the pin goes into the shoe
 def shoe(sv, floor=SHOE):
     """cap that slides onto the servo's bottom from the long end; the pivot screw threads into it"""
     w = 1.2
-    return [(1, sv.box(CASE_L0 - CLR - w, CASE_L1 + CLR, -CASE_HW - CLR - w, CASE_HW + CLR + w, -floor, 3.0)),
-            (-1, sv.box(CASE_L0 - CLR, CASE_L1 + CLR + 1, -CASE_HW - CLR, CASE_HW + CLR, 0, 3.5)),
+    c = SHOE_CLR
+    return [(1, sv.box(CASE_L0 - c - w, CASE_L1 + c, -CASE_HW - c - w, CASE_HW + c + w, -floor, 3.0)),
+            (-1, sv.box(CASE_L0 - c, CASE_L1 + c + 1, -CASE_HW - c, CASE_HW + c, 0, 3.5)),
+            (-1, sv.box(CASE_L1 - 2.0, CASE_L1 + c + 1, -CASE_HW - c - 0.5, CASE_HW + c + 0.5, 1.5, 3.5)),  # wider mouth so it starts easily
             (-1, sv.cyl(0, 0, -floor - 1, 1, PIN_R + 0.3))]  # the bracket's pivot pin turns in this hole
 
 def ring(sv, x1=TAB_L1 + 0.5):
