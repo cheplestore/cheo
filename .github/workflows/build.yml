@@ -1,0 +1,64 @@
+# Builds Cheo's firmware automatically whenever the code changes.
+# It compiles cdbos/cdbos.ino for the ESP32-S3, saves it as cheo-s3.bin,
+# and sets version.txt to the FW_VERSION in the code. Cheo then updates himself.
+name: Build Cheo firmware
+
+on:
+  push:
+    branches: [main]
+    paths: ['cdbos/**', '.github/workflows/build.yml']
+  pull_request:             # test-compile pull requests (doesn't upload anything)
+    paths: ['cdbos/**', '.github/workflows/build.yml']
+  workflow_dispatch:        # "Run workflow" button on the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-firmware
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 boards and libraries
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.0.7
+          arduino-cli lib install "Adafruit GFX Library" "Adafruit ST7735 and ST7789 Library" "ArduinoJson" "NimBLE-Arduino"
+
+      - name: Safety check - no passwords or keys in the code
+        run: |
+          if grep -E 'const char\* SETUP_(WIFI_SSID|WIFI_PASS|HOTSPOT_SSID|HOTSPOT_PASS|GROQ_KEY) *= *"[^"]+"' cdbos/cdbos.ino; then
+            echo "::error::A SETUP_ line has a password or key in it. Blank it (\"\") before pushing."
+            exit 1
+          fi
+
+      - name: Compile for ESP32-S3
+        run: |
+          arduino-cli compile \
+            --fqbn "esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi" \
+            --export-binaries --warnings default cdbos
+          ls -la cdbos/build/*/
+
+      - name: Update cheo-s3.bin and version.txt
+        if: github.event_name != 'pull_request'
+        run: |
+          VER=$(grep -oP '#define FW_VERSION \K[0-9]+' cdbos/cdbos.ino)
+          cp cdbos/build/esp32.esp32.esp32s3/cdbos.ino.bin cheo-s3.bin
+          echo "$VER" > version.txt
+          rm -rf cdbos/build
+          git config user.name "cheo-builder"
+          git config user.email "cheo-builder@users.noreply.github.com"
+          git add cheo-s3.bin version.txt
+          if git diff --cached --quiet; then echo "Nothing changed"; exit 0; fi
+          git commit -m "Build firmware v$VER (cheo-s3.bin)"
+          git push
