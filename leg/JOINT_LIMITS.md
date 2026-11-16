@@ -5,7 +5,7 @@ Test cubes: 0.4 mm.
 
 | Joint | Physical limit (parts touch) | What stops it | Safe software range | Servo at straight leg |
 |---|---|---|---|---|
-| Hip roll | out 76°, in 127° (test stand) | hip yoke hits the test stand | **−15° to +45°** | 90° |
+| Hip roll | out 79°, in 122° (test stand) | hip yoke hits the test stand | **−15° to +45°** | 90° |
 | Hip roll, other leg standing | in **3°** | feet touch each other | (only when one leg moves in alone) | |
 | Hip pitch | ±107° | thigh hits hip yoke | **−80° to +80°** | 90° |
 | Knee | ±121° | shin hits thigh | **0° to 115°** (no bending backward) | 45° (knee bent 45° at servo 90°) |

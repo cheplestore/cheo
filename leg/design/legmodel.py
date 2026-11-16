@@ -9,6 +9,10 @@ CASE_TOP = 22.5                     # case top (z_s), shaft side up
 TAB_L0, TAB_L1 = -11.0, 21.8        # mounting tabs, 32.8 mm tip to tip
 TAB_Z = 16.0                        # bottom of mounting tabs (servo rests here)
 HORN_TOP = 33.8                     # top of the horn (tab bottom -> horn top = 17.8 mm)
+# single-arm horn (measured): hub 7.2 mm, arm 13.9 mm wide at the hub -> 4.5 mm at the tip, 16.4 mm long, 2.0 mm thick
+HORN_HUB_D, HORN_W0, HORN_W1, HORN_LEN, HORN_T = 7.2, 13.9, 4.5, 16.4, 2.0
+POCKET_CLR = 0.4
+POCKET_DEPTH = 2.4
 CLR = 0.2                           # fit clearance per side
 
 # ---------------- design values ----------------
@@ -21,7 +25,7 @@ PIV0, PIV1 = -(SHOE + GAP + PL), -(SHOE + GAP)        # pivot plate z_s range
 HRN0 = HORN_TOP - 1.6; HRN1 = HRN0 + 4.0               # horn plate z_s range (horn sits in a 1.8 mm pocket)
 BR0, BR1 = 15.0, 19.0                                  # bridge distance from the joint axis
 PHW = 9.0                                              # plate / bridge half width
-HIP_Y = 9.0         # hip-roll axis 9 mm from the robot's center (18 mm apart)
+HIP_Y = 10.0        # hip-roll axis 10 mm from the robot's center (20 mm apart)
 LEG_Y = 26.0        # leg center line 26 mm from the robot's center
 
 def unit(v): v = np.array(v, float); return v / np.linalg.norm(v)
@@ -52,6 +56,24 @@ class Cyl:
                 for v in (-1, 1): out.append(s.c + s.a * t + s.r * (u * e1 + v * e2))
         return np.array(out)
 
+class Prism:
+    """convex polygon (u,v) extruded along w, in a frame (origin o, columns R = u,v,w)"""
+    def __init__(s, o, R, pts, w0, w1):
+        s.o = np.array(o, float); s.R = np.array(R, float); s.pts = np.array(pts, float); s.w0 = w0; s.w1 = w1
+        n = len(s.pts); s.edges = []
+        cx, cy = s.pts.mean(0)
+        for i in range(n):
+            a = s.pts[i]; b = s.pts[(i + 1) % n]; e = b - a; nrm = np.array([e[1], -e[0]])
+            if np.dot(nrm, [cx - a[0], cy - a[1]]) > 0: nrm = -nrm      # outward normal
+            s.edges.append((a, nrm))
+    def contains(s, P):
+        L = (P - s.o) @ s.R
+        ok = (L[:, 2] >= s.w0 - 1e-9) & (L[:, 2] <= s.w1 + 1e-9)
+        for a, nrm in s.edges: ok &= ((L[:, :2] - a) @ nrm) <= 1e-9
+        return ok
+    def corners(s):
+        return np.array([s.o + s.R @ np.array([p[0], p[1], w]) for p in s.pts for w in (s.w0, s.w1)])
+
 class Servo:
     """servo frame: z_s = shaft (horn side +), x_s = toward the long end, origin = shaft axis on the case bottom"""
     def __init__(s, name, P, zs, xs):
@@ -78,12 +100,15 @@ def servo_body(sv):
             (1, sv.cyl(0, 0, CASE_TOP, 27.0, CASE_HW)),
             (1, sv.box(2, 12, -4, 4, CASE_TOP, 26.0))]
 
+PIN_R = 1.5        # pivot pin radius (3 mm pin)
+PIN_IN = 1.8       # how far the pin goes into the shoe
+
 def shoe(sv, floor=SHOE):
     """cap that slides onto the servo's bottom from the long end; the pivot screw threads into it"""
     w = 1.2
     return [(1, sv.box(CASE_L0 - CLR - w, CASE_L1 + CLR, -CASE_HW - CLR - w, CASE_HW + CLR + w, -floor, 3.0)),
             (-1, sv.box(CASE_L0 - CLR, CASE_L1 + CLR + 1, -CASE_HW - CLR, CASE_HW + CLR, 0, 3.5)),
-            (-1, sv.cyl(0, 0, -floor - 1, 1, 0.8))]          # M2 pivot screw threads in here
+            (-1, sv.cyl(0, 0, -floor - 1, 1, PIN_R + 0.3))]  # the bracket's pivot pin turns in this hole
 
 def ring(sv, x1=TAB_L1 + 0.5):
     return [(1, sv.box(TAB_L0, x1, -RING_HW, RING_HW, 4.0, TAB_Z)),
@@ -102,11 +127,15 @@ def bracket(sv, d, vmin=-PHW, vmax=PHW, rd=PHW):
         out.append((1, sv.cyl(0, 0, z0, z1, rd)))
         out.append((1, obox_local(sv, Rl, 0, BR1, vmin, vmax, z0, z1)))
     out.append((1, obox_local(sv, Rl, BR0, BR1, vmin, vmax, PIV0, HRN1)))
-    out.append((-1, sv.cyl(0, 0, PIV0 - 1, PIV1 + 1, 1.1)))                  # M2 pivot screw (the joint turns on it)
-    out.append((-1, sv.cyl(0, 0, PIV0 - 1, PIV0 + 2.0, 2.3)))                # counterbore for its head
+    # printed pivot pin: snaps into the hole in the shoe (no screw needed)
+    out.append((1, sv.cyl(0, 0, PIV1 - 0.5, -SHOE + PIN_IN - 0.6, PIN_R)))
+    out.append((1, sv.cyl(0, 0, -SHOE + PIN_IN - 0.6, -SHOE + PIN_IN, PIN_R - 0.4)))   # rounded-off tip so it clicks in
     out.append((-1, sv.cyl(0, 0, HRN0 - 1, HRN1 + 1, 3.0)))                  # reach the horn screw
-    out.append((-1, sv.cyl(0, 0, HRN0 - 0.3, HORN_TOP + 0.2, 4.1)))         # horn hub pocket
-    out.append((-1, obox_local(sv, Rl, 0, 16.8, -2.9, 2.9, HRN0 - 0.3, HORN_TOP + 0.2)))   # horn arm pocket
+    # horn pocket: the hub + the triangle-shaped arm, pointing toward the bridge
+    pz0, pz1 = HRN0 - 0.3, HRN0 + POCKET_DEPTH
+    out.append((-1, sv.cyl(0, 0, pz0, pz1, HORN_HUB_D / 2 + POCKET_CLR)))
+    hw0 = HORN_W0 / 2 + POCKET_CLR; hw1 = HORN_W1 / 2 + POCKET_CLR; L = HORN_LEN + POCKET_CLR
+    out.append((-1, Prism(sv.P, sv.R @ Rl, [(0, -hw0), (L, -hw1), (L, hw1), (0, hw0)], pz0, pz1)))
     for r in (10.0, 13.5):                                                   # horn screws
         p = Rl @ np.array([r, 0, 0])
         out.append((-1, sv.cyl(p[0], p[1], HRN0 - 1, HRN1 + 1, 0.75)))
@@ -138,7 +167,7 @@ def build_parts():
     mount = ring(R1) + [(1, wbox(-30, 25, -5, 30, R1.w([TAB_L1, 0, 0])[2], R1.w([TAB_L1, 0, 0])[2] + 4)),
                         (-1, Cyl([-22, 12, 0], [0, 0, 1], 1.7, 60)), (-1, Cyl([17, 12, 0], [0, 0, 1], 1.7, 60))]
     P['pelvis_test_mount'] = mount
-    P['hip_yoke'] = bracket(R1, (-1, 0), vmin=-6.0, rd=7.5) + bracket(P1, (-1, 0))
+    P['hip_yoke'] = bracket(R1, (-1, 0), vmin=-8.4, rd=8.4) + bracket(P1, (-1, 0))
     P['thigh'] = ring(P1) + ring(K)
     P['shin'] = bracket(K, (-1, 0)) + ring(A1, x1=TAB_L1 + 1.0)
     P['ankle_yoke'] = bracket(A1, (-1, 0)) + bracket(R2, (-1, 0))
