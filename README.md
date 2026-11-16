@@ -11,6 +11,7 @@ Cheo is a desk buddy robot with screen eyes. He runs **CDBos** (Cheo Desk Buddy 
 | `cheo.bin` | The compiled firmware for the **ESP32-C6** |
 | `cheo-s3.bin` | The compiled firmware for the **ESP32-S3** |
 | `docs/` | Biped concept picture and walking-simulation report |
+| `leg/` | Printable biped leg (STL files), joint limits, and the design scripts |
 
 ## First install (USB)
 
@@ -53,6 +54,8 @@ Cheo checks 1 minute after he starts and every 6 hours, or when you say "check f
 | Amp VIN | 5V | 5V |
 | Servo signal | 2 | 7 |
 | Ultrasonic TRIG / ECHO (ECHO through a divider) | 3 / 4 | 15 / 16 |
+| Microphone INMP441 SCK / WS / SD | — | 1 / 2 / 42 |
+| Mic VDD, GND, L/R | — | 3V3, GND, GND |
 | Button | BOOT (9) | BOOT (0) |
 | Screen rotation | 3 | 1 |
 
@@ -71,3 +74,14 @@ On the same Wi-Fi, the Cheple phone (or anything else) can control Cheo:
 | `cheo.local/api/feed?f=cheese` | Feeds him |
 
 Cheo also broadcasts events on UDP port **4211** as `CHEO|type|text` (types: `alarm`, `timer`, `reminder`, `notif`, `call`, `levelup`, `rain`).
+
+## Talking to Cheo (v12, ESP32-S3)
+
+**Hold his BOOT button and talk, then let go.** Or hold the 🎤 button on his web page. He records up to 10 seconds, Groq Whisper turns it into words, and he answers out loud.
+Study mode moved off the button hold: say "start study mode" or use the web page.
+
+## Biped leg (leg/)
+
+- `leg/stl/`: `L_` = left leg, `R_` = right leg (mirror image). `shoe_3.0mm.stl` x5 per leg (2.5 and 3.5 mm versions to fine-tune the fit).
+- `leg/JOINT_LIMITS.md`: how far each joint can move before parts hit.
+- `leg/leg_limits.h`: the same limits for the firmware.
