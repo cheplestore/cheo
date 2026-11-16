@@ -11,7 +11,7 @@
 | `shin` | 1 | Supports needed |
 | `ankle_yoke` | 1 | Supports needed |
 | `foot` | 1 | Prints flat |
-| `shoe_3.0mm` | 5 | One slides onto the bottom of each servo |
+| `shoe_2.0mm` | 5 | One slides onto the bottom of each servo (2.0 mm is the fit-tested size) |
 
 ## Fit test first
 Print `stl/fit_test/fit_ring.stl` + `stl/fit_test/fit_bracket.stl` + a shoe to check one joint before printing a whole leg.
@@ -32,7 +32,7 @@ Print `stl/fit_test/fit_ring.stl` + `stl/fit_test/fit_bracket.stl` + a shoe to c
 6. Put the short horn screw through the big hole in the bracket into the servo's gear.
 7. Knee only: with the knee servo at 90°, attach the shin bent 45° backward (so the knee can bend 0-115°).
 
-If a bracket is too tight or loose between the horn and the shoe, use the 2.5 or 3.5 mm shoe. If the pin won't click in, sand its tip; if it turns stiffly, twist the joint back and forth a few times to wear it in.
+If a bracket is too tight or loose between the horn and the shoe, use the 2.5 or 3.0 mm shoe. If the pin won't click in, sand its tip; if it turns stiffly, twist the joint back and forth a few times to wear it in.
 
 ## Sizes
 Hip roll axis to floor: 177 mm. Hip roll axes 20 mm apart, feet centered 52 mm apart (26 mm from the center line).
