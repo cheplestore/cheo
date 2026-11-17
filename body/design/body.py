@@ -201,8 +201,7 @@ def arm(side):
     prims = [(1, sv.cyl(0, 0, pz0, pz1, 10.0)),
              (1, sv.box(0, 62, -8.5, 8.5, pz0, pz1)),
              (1, sv.cyl(62, 0, pz0, pz1, 9.5)),                     # hand
-             (-1, sv.cyl(0, 0, pz0 - 1, pz1 + 1, 1.1)),               # horn screw
-             (-1, sv.cyl(0, 0, pz1 - 2.0, pz1 + 1, 2.4))]             # its head
+             (-1, sv.cyl(0, 0, pz0 - 1, pz1 + 1, 3.0))]               # 6 mm hole: horn screw goes in from outside, head sits on the horn (like the legs)
     # horn pocket (same triangle as the legs, pointing down the arm)
     hw0 = L.HORN_W0 / 2 + L.POCKET_CLR; hw1 = L.HORN_W1 / 2 + L.POCKET_CLR; Ln = L.HORN_LEN + L.POCKET_CLR + L.ARM_EXTRA
     prims.append((-1, sv.cyl(0, 0, pz0 - 1, L.HRN0 + L.POCKET_DEPTH, L.HORN_HUB_D / 2 + L.POCKET_CLR)))
