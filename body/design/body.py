@@ -187,10 +187,7 @@ def head():
     # shelf the camera board lies on (above the screen)
     add.append(box(HX0 + 3.0, HX1 - ht + 0.01, -HW + ht - 0.01, -CAM_BW / 2 + 3, SCR_Z0 + SCR_H + 0.4, SCR_Z0 + SCR_H + 1.4))
     add.append(box(HX0 + 3.0, HX1 - ht + 0.01, CAM_BW / 2 - 3, HW - ht + 0.01, SCR_Z0 + SCR_H + 0.4, SCR_Z0 + SCR_H + 1.4))
-    # 2 ribs behind the camera board so it can't tip backward (the white plug stops it tipping forward)
-    for sd in (1, -1):
-        y0, y1 = sorted((sd * 9.0, sd * 14.0))
-        add.append(box(CB_BACK - 2.0 - 0.25, CB_BACK - 0.25, y0, y1, HZ0 + HFL - 0.01, HZ0 + HFL + 30))
+    # (no ribs behind the camera board: they blocked the screen sliding in. Hot glue holds the board.)
     # horn pad: solid floor under the horn for its little screws
     return s + union_all(add)
 
