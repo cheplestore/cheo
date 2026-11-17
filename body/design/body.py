@@ -21,6 +21,7 @@ SG_TAB_SPAN, SG_TAB_Z0, SG_TAB_T = 32.2, 15.9, 2.5
 SG_HORN_TOP = 31.5                               # case bottom -> top of the horn
 
 t = 2.0                                          # wall
+EXTRA = 0.4                                      # extra room around every component (user: loose is fine, will tape)
 # ---------------- torso box ----------------
 X0, X1 = -32.0, 30.0                             # back, front (outer)
 YW = 50.0                                        # half width (outer)
@@ -55,7 +56,7 @@ CB_X0 = HAT_X0 + 2.0 + 0.5                       # camera board back face
 CB_X1 = CB_X0 + 1.6
 HAT_Z0 = HZ1                                     # hat stands on the head top
 CAM_ZC = HAT_Z0 + 39.9                           # lens centre (39.9 mm up from the board's USB end)
-HAT_Z1 = HAT_Z0 + 50.2 + 0.5 + 2.0
+HAT_Z1 = HAT_Z0 + 50.2 + 0.5 + 0.4 + 2.0
 # ---------------- arms ----------------
 ARM_S = Z_TOP0 - 12.0                             # shoulder axis height
 ARM_P_Y = 21.2                                    # MG90S case bottom (its horn ends up 5.8 mm outside the wall)
@@ -94,18 +95,19 @@ def pelvis():
     return s - union_all(cut)
 
 # deck layout (level 2): ESP32-S3 at the back (USB-C to the left wall), PCA9685 in front, 2 Mini560 on the right
-S3_X0, S3_Y1 = SLOT_X1 + 0.5 + 1.4 + 0.3, 44.0                        # S3 lies upside down (pins up), USB end at +y
+CW = 1.0                                         # corner holder wall
+S3_X0, S3_Y1 = SLOT_X1 + 0.2 + CW + 0.25 + EXTRA, 44.0 - EXTRA                        # S3 lies upside down (pins up), USB end at +y
 S3_X1, S3_Y0 = S3_X0 + S3_W, S3_Y1 - S3_L
 PCA_L, PCA_W = 62.5, 25.4
-PCA_X0 = S3_X1 + 2.0; PCA_X1 = PCA_X0 + PCA_W
+PCA_X0 = S3_X1 + 2 * (0.25 + EXTRA) + CW; PCA_X1 = PCA_X0 + PCA_W   # S3 and PCA share the wall between them
 MINI_L, MINI_H, MINI_T = 32.6, 17.7, 5.1
-MINI_YS = (-46.6, -39.5)                          # two Mini560 standing on their long edge
+MINI_YS = (-45.65, -38.45)                       # 2 pockets sharing a 0.8 mm wall                          # two Mini560 standing on their long edge
 MINI_X0 = -7.2
 TRAY_T = 1.6
 LEGSLOT = (4.0, 22.0, 34.0, 45.0)                # leg cables come up here (deck + tray)
 BATSLOT = (-27.8, -12.0, -46.0, -36.0)           # battery wire comes up here
-AMP_X0, AMP_X1 = SLOT_X1 + 0.4, SLOT_X1 + 0.4 + AMP_D + 0.6
-NB_X0, NB_X1, NB_HW = TAB_X0 - 0.2 - 2.2 - 1.2 - 1.6, TAB_X1 + 0.2 + 2.2 + 1.2 + 1.6, 19.1   # hollow neck box (outer)
+AMP_X0, AMP_X1 = SLOT_X1 + 0.4, SLOT_X1 + 0.4 + AMP_D + 0.6 + 2 * EXTRA
+NB_X0, NB_X1, NB_HW = TAB_X0 - 0.6 - 2.2 - 1.2 - 1.6, TAB_X1 + 0.6 + 2.2 + 1.2 + 1.6, 19.1   # hollow neck box (outer)
 NB_T = 1.6
 NECK_WIRE = (-7.5, 9.5, 8.5, 17.5)               # x0, x1, |y|0, |y|1: wire openings under the neck (torso top + box floor)
 NECK_LEGS = [(-1, NB_X0 + NB_T + 0.6), (1, NB_X1 - NB_T - 0.6 - 1.6 - 1.0)]   # (barb direction, leg x0)
@@ -155,20 +157,20 @@ def torso():
     # speaker cradle: side ribs with crush bumps + a ledge (speaker presses in, no glue)
     zc0 = Z_L3 + 3
     for side in (1, -1):
-        y0 = side * (SPK_W / 2 + 0.3)
+        y0 = side * (SPK_W / 2 + 0.3 + EXTRA)
         add.append(box(IX1 - SPK_D - 0.5, IX1 + 0.01, min(y0, y0 + side * 1.6), max(y0, y0 + side * 1.6), zc0, zc0 + SPK_H))
-        yb0, yb1 = sorted((side * (SPK_W / 2 - 0.05), side * (SPK_W / 2 + 0.31)))
+        yb0, yb1 = sorted((side * (SPK_W / 2 + 0.1), side * (SPK_W / 2 + 0.31 + EXTRA)))
         for zb in (zc0 + 6, zc0 + SPK_H - 6):
             add.append(bump(IX1 - SPK_D + 1, IX1 - 3, yb0, yb1, zb - 1.5, zb + 1.5))
-    add.append(box(IX1 - SPK_D - 0.5, IX1 + 0.01, -SPK_W / 2 - 1.9, SPK_W / 2 + 1.9, zc0 - 1.6, zc0))
+    add.append(box(IX1 - SPK_D - 0.5 - EXTRA, IX1 + 0.01, -SPK_W / 2 - 1.9 - EXTRA, SPK_W / 2 + 1.9 + EXTRA, zc0 - 1.6, zc0))
     # amp bay: hangs under the top plate at the back, open front + back, crush bumps on the sides
-    az0 = Z_TOP0 - AMP_H - 3.0                      # 3 mm over the amp for the neck servo cable + amp wires
+    az0 = Z_TOP0 - AMP_H - 3.0 - EXTRA                      # 3 mm over the amp for the neck servo cable + amp wires
     for side in (1, -1):
-        y0, y1 = sorted((side * (AMP_W / 2 + 0.3), side * (AMP_W / 2 + 1.9)))
+        y0, y1 = sorted((side * (AMP_W / 2 + 0.3 + EXTRA), side * (AMP_W / 2 + 1.9 + EXTRA)))
         add.append(box(AMP_X0, AMP_X1, y0, y1, az0 - 1.6, Z_TOP0 + 0.01))
-        yb0, yb1 = sorted((side * (AMP_W / 2 - 0.05), side * (AMP_W / 2 + 0.31)))
+        yb0, yb1 = sorted((side * (AMP_W / 2 + 0.1), side * (AMP_W / 2 + 0.31 + EXTRA)))
         add.append(bump(AMP_X0 + 3, AMP_X1 - 3, yb0, yb1, az0 + 4, az0 + 8))
-    add.append(box(AMP_X0, AMP_X1, -AMP_W / 2 - 1.9, AMP_W / 2 + 1.9, az0 - 1.6, az0))
+    add.append(box(AMP_X0, AMP_X1, -AMP_W / 2 - 1.9 - EXTRA, AMP_W / 2 + 1.9 + EXTRA, az0 - 1.6, az0))
     # 4 snap legs up through the neck box floor (the box clicks down onto them)
     bt = Z_TOP1 + TW_BASE
     for bxd, lx0 in NECK_LEGS:
@@ -181,14 +183,14 @@ def torso():
         sv = arm_servo(side)
         tab_out = 16.0 + 2.5
         pad = [(1, sv.box(-11.0 - (Z_TOP0 - (ARM_S + 11.0)) - 0.01, L.TAB_L1 + 0.5, -L.RING_HW, L.RING_HW, tab_out, IY - ARM_P_Y + 0.01)),
-               (-1, sv.box(L.CASE_L0 - L.CLR, L.CASE_L1 + L.CLR, -L.CASE_HW - L.CLR, L.CASE_HW + L.CLR, tab_out - 1, IY - ARM_P_Y + 1)),
+               (-1, sv.box(L.CASE_L0 - L.CLR - EXTRA, L.CASE_L1 + L.CLR + EXTRA, -L.CASE_HW - L.CLR - EXTRA, L.CASE_HW + L.CLR + EXTRA, tab_out - 1, IY - ARM_P_Y + 1)),
                (-1, sv.cyl(-8.6, 0, tab_out - 1, tab_out + 8, 0.8)), (-1, sv.cyl(19.4, 0, tab_out - 1, tab_out + 8, 0.8))]
         add.append(part_solid(pad))
     return s + union_all(add)
 
 def deck_tray():
     """press-fit tray on the deck: holds the S3, PCA9685 and both Mini560s without glue or screws"""
-    tx0, tx1, ty = SLOT_X1 + 0.5, IX1 - 0.3, IY - 0.3
+    tx0, tx1, ty = SLOT_X1 + 0.2, IX1 - 0.2, IY - 0.5
     z0 = Z_DECK1; z1 = z0 + TRAY_T
     s = box(tx0, tx1, -ty, ty, z0, z1)
     cut = [rbox(LEGSLOT[0], LEGSLOT[1], LEGSLOT[2], LEGSLOT[3], z0 - 1, z1 + 1, 2),
@@ -208,11 +210,12 @@ def deck_tray():
             for cy, sy in ((y0, -1), (y1, 1)):
                 px0, px1 = sorted((cx, cx - sx * 4.5)); py0, py1 = sorted((cy, cy - sy * 4.5))
                 out.append(box(px0, px1, py0, py1, z1 - 0.01, z1 + pad_h))
-                wx0, wx1 = sorted((cx + sx * 0.25, cx + sx * 1.65)); wy0, wy1 = sorted((cy - sy * 6, cy + sy * 1.65))
+                g = 0.25 + EXTRA
+                wx0, wx1 = sorted((cx + sx * g, cx + sx * (g + CW))); wy0, wy1 = sorted((cy - sy * 6, cy + sy * (g + CW)))
                 out.append(box(wx0, wx1, wy0, wy1, z1 - 0.01, z1 + pad_h + wall_h))
-                wx0, wx1 = sorted((cx - sx * 6, cx + sx * 1.65)); wy0, wy1 = sorted((cy + sy * 0.25, cy + sy * 1.65))
+                wx0, wx1 = sorted((cx - sx * 6, cx + sx * (g + CW))); wy0, wy1 = sorted((cy + sy * g, cy + sy * (g + CW)))
                 out.append(box(wx0, wx1, wy0, wy1, z1 - 0.01, z1 + pad_h + wall_h))
-                bx0, bx1 = sorted((cx + sx * 0.25, cx - sx * 0.1)); 
+                bx0, bx1 = sorted((cx + sx * g, cx + sx * 0.1)); 
                 out.append(bump(bx0, bx1, min(cy - sy * 4.5, cy - sy * 2.5), max(cy - sy * 4.5, cy - sy * 2.5), z1 + pad_h + 0.4, z1 + pad_h + 1.4))
         return out
     # S3 upside down (its chip is underneath): 3.6 mm pads so the chip clears the tray
@@ -220,10 +223,10 @@ def deck_tray():
     add += corners(PCA_X0, PCA_X1, -PCA_L / 2, PCA_L / 2, 3.0, 2.4)
     # Mini560 pockets (each board stands on its long edge, press fit)
     for y in MINI_YS:
-        y0, y1 = y - 0.25, y + MINI_T + 0.25
-        add.append(box(MINI_X0 - 1.6, MINI_X0 + MINI_L + 1.6, y0 - 1.6, y1 + 1.6, z1 - 0.01, z1 + 5.0)
-                   - box(MINI_X0 - 0.25, MINI_X0 + MINI_L + 0.25, y0, y1, z1, z1 + 6))
-        add.append(bump(MINI_X0 + 10, MINI_X0 + 20, y1 - 0.35, y1 + 0.01, z1 + 1, z1 + 4))
+        y0, y1 = y - 0.25 - EXTRA, y + MINI_T + 0.25 + EXTRA
+        add.append(box(MINI_X0 - 0.8 - 0.25 - EXTRA, MINI_X0 + MINI_L + 0.8 + 0.25 + EXTRA, y0 - 0.8, y1 + 0.8, z1 - 0.01, z1 + 5.0)
+                   - box(MINI_X0 - 0.25 - EXTRA, MINI_X0 + MINI_L + 0.25 + EXTRA, y0, y1, z1, z1 + 6))
+        add.append(bump(MINI_X0 + 10, MINI_X0 + 20, y1 - 0.4, y1 + 0.01, z1 + 1, z1 + 4))
     return s + union_all(add)
 
 def neck_tower():
@@ -242,16 +245,16 @@ def neck_tower():
             cut.append(box(lx0 - 0.3, lx0 + 1.9, y0, y1, b0 - 1, b1 + 1))
     s = s - union_all(cut)
     # cradle for the SG90
-    blk = box(TAB_X0 - 0.2, TAB_X1 + 0.2, -SG_W / 2 - 1.8, SG_W / 2 + 1.8, b1 - 0.01, b1 + SG_TAB_Z0)
-    blk = blk - union_all([box(SGX0 - 0.25, SGX1 + 0.25, -SG_W / 2 - 0.25, SG_W / 2 + 0.25, b1, b1 + SG_TAB_Z0 + 1),
+    blk = box(TAB_X0 - 0.6, TAB_X1 + 0.6, -SG_W / 2 - 1.8 - EXTRA, SG_W / 2 + 1.8 + EXTRA, b1 - 0.01, b1 + SG_TAB_Z0)
+    blk = blk - union_all([box(SGX0 - 0.25 - EXTRA, SGX1 + 0.25 + EXTRA, -SG_W / 2 - 0.25 - EXTRA, SG_W / 2 + 0.25 + EXTRA, b1, b1 + SG_TAB_Z0 + 1),
                            box(TAB_X0 - 1, SGX0 + 0.1, -3.5, 3.5, b1, b1 + 7),                      # cable out the back end
                            box(SGX1 - 0.1, TAB_X1 - 1.5, -3.0, 3.0, b1 + SG_TAB_Z0 - 3, b1 + SG_TAB_Z0 + 1)])
     add = [blk]
-    lip_z = b1 + SG_TAB_Z0 + SG_TAB_T + 0.15
-    for sx, xe in ((-1, TAB_X0 - 0.2), (1, TAB_X1 + 0.2)):
+    lip_z = b1 + SG_TAB_Z0 + SG_TAB_T + 0.35
+    for sx, xe in ((-1, TAB_X0 - 0.6), (1, TAB_X1 + 0.6)):
         a0, a1 = sorted((xe + sx * 0.6, xe + sx * 2.2))
         add.append(box(a0, a1, -4.0, 4.0, b1 - 0.01, lip_z + 1.0))
-        add.append(prism('y', [(xe + sx * 0.61, lip_z), (xe - sx * 1.0, lip_z), (xe + sx * 0.61, lip_z + 2.0)], -4.0, 4.0))
+        add.append(prism('y', [(xe + sx * 0.61, lip_z), (xe - sx * 1.4, lip_z), (xe + sx * 0.61, lip_z + 2.4)], -4.0, 4.0))
     return s + union_all(add)
 
 def head():
@@ -280,22 +283,22 @@ def head():
     s = s - union_all(cut)
     add = []
     # screen: 1 mm ledge underneath, lip on top, snap ridges just behind the board
-    add.append(box(HX1 - ht - SCR_STACK - 2, HX1 - ht + 0.01, -SCR_W / 2 - 1.5, SCR_W / 2 + 1.5, HZ0 + HFL - 0.01, SCR_Z0))
+    add.append(box(HX1 - ht - SCR_STACK - 2 - EXTRA, HX1 - ht + 0.01, -SCR_W / 2 - 1.5, SCR_W / 2 + 1.5, HZ0 + HFL - 0.01, SCR_Z0))
     for sd in (1, -1):
         y0, y1 = sorted((sd * 6.5, sd * (SCR_W / 2 + 1.5)))
-        add.append(box(HX1 - ht - SCR_STACK - 2, HX1 - ht + 0.01, y0, y1, SCR_Z0 + SCR_H + 0.4, HZ1 - ht + 0.01))
-    bx = HX1 - ht - SCR_STACK - 0.2 - 0.7
+        add.append(box(HX1 - ht - SCR_STACK - 2 - EXTRA, HX1 - ht + 0.01, y0, y1, SCR_Z0 + SCR_H + 0.4 + EXTRA, HZ1 - ht + 0.01))
+    bx = HX1 - ht - SCR_STACK - 0.2 - EXTRA - 0.7
     add.append(prism('y', [(bx - 0.7, SCR_Z0), (bx, SCR_Z0 + 0.6), (bx + 0.7, SCR_Z0)], -24, 24))
     for sd in (1, -1):
         y0, y1 = sorted((sd * 6.5, sd * 24))
-        add.append(prism('y', [(bx - 0.7, SCR_Z0 + SCR_H + 0.41), (bx + 0.7, SCR_Z0 + SCR_H + 0.41), (bx, SCR_Z0 + SCR_H - 0.2)], y0, y1))
+        add.append(prism('y', [(bx - 0.7, SCR_Z0 + SCR_H + 0.41 + EXTRA), (bx + 0.7, SCR_Z0 + SCR_H + 0.41 + EXTRA), (bx, SCR_Z0 + SCR_H - 0.2 + EXTRA)], y0, y1))
     # INMP441 rails under the ceiling (board slides in from the back, sound hole up)
     rz1 = HZ1 - ht; pcb_top = rz1 - 1.5; pcb_bot = pcb_top - 1.6
     for sd in (1, -1):
-        y0, y1 = sorted((MIC_Y + sd * 7.4, MIC_Y + sd * 9.4))
+        y0, y1 = sorted((MIC_Y + sd * 7.8, MIC_Y + sd * 9.8))
         rail = box(HX0 + 3.2, MIC_X + 8.0, y0, y1, pcb_bot - 1.6, rz1 + 0.01)
-        g0, g1 = sorted((MIC_Y + sd * 6.6, MIC_Y + sd * 8.4))
-        rail = rail - box(HX0 + 3.0, MIC_X + 3.1, g0, g1, pcb_bot - 0.15, pcb_top + 0.15)
+        g0, g1 = sorted((MIC_Y + sd * 6.6, MIC_Y + sd * 8.8))
+        rail = rail - box(HX0 + 3.0, MIC_X + 3.1, g0, g1, pcb_bot - 0.35, pcb_top + 0.35)
         add.append(rail)
     return s + union_all(add)
 
@@ -304,7 +307,7 @@ def camera_hat():
     s = rbox(HAT_X0, HAT_X1, -HAT_HW, HAT_HW, HAT_Z0, HAT_Z1, 3.0)
     ix0, ix1, iy = HAT_X0 + 2.0, HAT_X1 - 2.0, HAT_HW - 2.0
     cut = [box(ix0, ix1, -iy, iy, HAT_Z0 - 1, HAT_Z1 - 2.0)]
-    cut.append(box(CB_X0 - 0.15, CB_X1 + 0.15, -15.35 - 0.35, 15.35 + 0.35, HAT_Z0 - 1, HAT_Z0 + 50.2 + 0.5))   # PCB edge grooves
+    cut.append(box(CB_X0 - 0.15 - EXTRA, CB_X1 + 0.15 + EXTRA, -15.35 - 0.35 - EXTRA, 15.35 + 0.35 + EXTRA, HAT_Z0 - 1, HAT_Z0 + 50.2 + 0.5 + EXTRA))   # PCB edge grooves
     # camera window (camera sits ~3 mm behind the front wall), flared
     cut.append(box(ix1 - 0.5, ix1 + 1.0, -5.0, 5.0, CAM_ZC - 4.2, CAM_ZC + 4.2, r=2.0, axis='x'))
     cut.append(box(ix1 + 0.99, HAT_X1 + 1, -6.2, 6.2, CAM_ZC - 5.2, CAM_ZC + 5.2, r=2.0, axis='x'))

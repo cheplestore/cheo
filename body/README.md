@@ -1,7 +1,7 @@
 # Cheo biped: body, neck, head, arms (v2)
 
 Fits the leg design in `leg/` (same coordinates; the pelvis replaces `L_pelvis_test_mount`).
-**No glue and no screws for any electronics**: every board presses or slides into a printed holder, so parts can be swapped when the design changes.
+**No glue and no screws for any electronics**; every holder has 0.4 mm extra room per side (loose is fine, tape if needed): every board presses or slides into a printed holder, so parts can be swapped when the design changes.
 
 ## Parts to print (PCTG, 3 walls, 15% infill), all already turned the right way
 | File | How many | Holds |
