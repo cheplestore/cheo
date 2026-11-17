@@ -30,6 +30,6 @@ Fits the leg design in `leg/` (same coordinates; the pelvis replaces `L_pelvis_t
 Wiring (pins unchanged): see `book/step9_wiring.png`. The step pictures in `book/` show v1 and will be redrawn for v2.
 
 ## Numbers
-- Robot about 43 cm tall with the hat (37 cm without), ~690 g.
-- Physics re-checked with v2: walks at 1.0-1.6 s per step, hip roll 52% of an MG90S at 1.6 s.
+- Robot about 43 cm tall with the hat (37 cm without), ~667 g (printed body parts 186 g, down from 220 g).
+- Physics re-checked with v2: walks at 1.0-1.6 s per step, hip roll 51% of an MG90S at 1.6 s.
 - `check_views_v2.png`: cuts through the neck, head, hat, deck tray and chest showing every part has room (2 mm for wires).

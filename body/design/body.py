@@ -43,7 +43,7 @@ HEAD_Z0 = SG_CASE_Z0 + SG_HORN_TOP + 0.2         # head floor sits on the horn
 # ---------------- head ----------------
 HX0, HX1, HW = -19.5, 17.5, 31.0                 # back, front, half width
 HFL = 4.0                                        # head floor (horn socket underneath)
-HZ0, HZ1 = HEAD_Z0, HEAD_Z0 + 44.0
+HZ0, HZ1 = HEAD_Z0, HEAD_Z0 + 46.0              # tall enough for the screen to slide in under the mic rails
 SCR_Z0 = HZ0 + HFL + 1.0                          # screen board bottom (on a 1 mm ledge)
 DISP_DY, DISP_DZ = 2.0, 0.85                     # lit area sits right/up of the board centre (photo)
 DISP_W, DISP_H = 35.0, 28.0                      # lit area of the 1.8" ST7735
@@ -106,7 +106,7 @@ LEGSLOT = (4.0, 22.0, 34.0, 45.0)                # leg cables come up here (deck
 BATSLOT = (-27.8, -12.0, -46.0, -36.0)           # battery wire comes up here
 AMP_X0, AMP_X1 = SLOT_X1 + 0.4, SLOT_X1 + 0.4 + AMP_D + 0.6
 NECK_LEG_Y = 9.2                                 # neck tower snap legs
-WIRE_Y0, WIRE_Y1 = 14.0, 22.0                    # head wire slots in the torso top (each side)
+WIRE_Y0, WIRE_Y1 = 13.0, 19.2                    # head wire slots in the torso top (each side)
 
 def torso():
     s = rbox(X0, X1, -YW, YW, Z0, Z_TOP1, 4.0)
@@ -114,6 +114,16 @@ def torso():
     cut.append(box(SLOT_X0, SLOT_X1, -IY - 0.9, IY + 0.9, Z_DECK1 - 0.01, Z_TOP1 + 1))
     cut.append(box(X0 - 1, SLOT_X1, -IY - 0.9, IY + 0.9, Z_TOP0 - 0.01, Z_TOP1 + 1))
     cut.append(box(-22, 10, -YW - 1, YW + 1, Z0 + 5, Z_DECK0 - 4, r=4, axis='y'))
+    # weight-saving windows: chest sides (front + back of the arm pads), deck level, top plate corners
+    for xa, xb in ((-25.0, -13.0), (13.0, 25.0)):
+        cut.append(box(xa, xb, -YW - 1, YW + 1, Z_L3 + 4, Z_TOP0 - 6, r=4, axis='y'))
+    cut.append(box(2.0, 22.0, IY - 1, YW + 1, Z_DECK1 + 6, Z_DECK1 + 19, r=4, axis='y'))      # left, beside the PCA9685
+    cut.append(box(-22.0, 0.0, -YW - 1, -IY + 1, Z_DECK1 + 6, Z_DECK1 + 19, r=4, axis='y'))   # right, beside the Mini560s
+    for sd in (1, -1):
+        y0, y1 = sorted((sd * 22.0, sd * 37.0))
+        cut.append(rbox(12.0, 25.0, y0, y1, Z_TOP0 - 1, Z_TOP1 + 1, 3))
+    # shallow panel on the front of the battery bay (wall 1.2 mm there)
+    cut.append(box(X1 - 0.8, X1 + 1, -36, 36, Z0 + 4, Z_DECK0 - 3, r=3, axis='x'))
     zc = Z_L3 + 3 + SPK_H / 2
     for k in range(-3, 4):
         cut.append(box(IX1 - 1, X1 + 1, -SPK_W / 2 + 5, SPK_W / 2 - 5, zc + k * 3.8 - 0.9, zc + k * 3.8 + 0.9, r=0.9, axis='x'))
@@ -134,7 +144,9 @@ def torso():
     deck = box(X0, IX1 + 0.01, -IY - 0.01, IY + 0.01, Z_DECK0, Z_DECK1)
     dcut = [rbox(LEGSLOT[0], LEGSLOT[1], LEGSLOT[2], LEGSLOT[3], Z_DECK0 - 1, Z_DECK1 + 1, 2),
             rbox(BATSLOT[0], BATSLOT[1], BATSLOT[2], BATSLOT[3], Z_DECK0 - 1, Z_DECK1 + 1, 2),
-            box(SLOT_X0 - 0.1, SLOT_X1 + 0.1, -IY + 0.2, IY - 0.2, Z_DECK0 - 1, Z_DECK0 + 2.6)]
+            box(SLOT_X0 - 0.1, SLOT_X1 + 0.1, -IY + 0.2, IY - 0.2, Z_DECK0 - 1, Z_DECK0 + 2.6),
+            rbox(-23.0, -4.0, -28.0, 28.0, Z_DECK0 - 1, Z_DECK1 + 1, 4),     # windows: the tray carries the boards
+            rbox(2.0, 24.0, -28.0, 28.0, Z_DECK0 - 1, Z_DECK1 + 1, 4)]
     add.append(deck - union_all(dcut))
     for (x, y) in BOSSES:     # pins go up through these
         add.append(prism('z', circle(x, y, 3.4, 20), Z0, Z0 + 10) + box(x, IX1 + 0.01, y - 3.4, y + 3.4, Z0, Z0 + 10)
@@ -185,7 +197,7 @@ def deck_tray():
     add = []
     for sd in (1, -1):        # side crush bumps against the torso walls
         y0, y1 = sorted((sd * (ty - 0.01), sd * (ty + 0.45)))
-        for x in (tx0 + 8, (tx0 + tx1) / 2, tx1 - 8):
+        for x in (tx0 + 4, 4.0, tx1 - 6):
             add.append(bump(x - 3, x + 3, y0, y1, z0, z1))
     def corners(x0, x1, y0, y1, pad_h, wall_h):
         """4 corner pads (board sits on them) + 4 corner L-walls with crush bumps"""
@@ -250,6 +262,9 @@ def head():
     for sd in (1, -1):
         x0, x1 = sorted((sd * 9.0, sd * (HX1 - ht + 0.5)))
         cut.append(rbox(x0, x1, -7.0, 7.0, HZ0 - 1, HZ0 + HFL + 1, 2))
+    for k in range(3):     # side vents (lighter, lets the speaker-side air out)
+        zc = HZ0 + 14 + k * 7
+        cut.append(box(HX0 + 5, HX0 + 17, -HW - 1, HW + 1, zc - 1.5, zc + 1.5, r=1.4, axis='y'))
     # top: mic sound hole, hat snap slots, hat wire hole
     cut.append(prism('z', circle(MIC_X, MIC_Y, 1.0, 12), HZ1 - ht - 1, HZ1 + 1))
     for xs in (HAT_X0 - 0.2, HAT_X1 - 2.0 - 0.2):
@@ -291,6 +306,10 @@ def camera_hat():
         for sd in (1, -1):
             y0, y1 = sorted((sd * 4.4, sd * 5.2))
             cut.append(box(xw0, xw1, y0, y1, HAT_Z0 - 1, HAT_Z0 + 14))
+    for sd in (1, -1):
+        y0, y1 = sorted((sd * (iy - 0.5), sd * (HAT_HW + 1)))
+        cut.append(box(CB_X1 + 1.5, ix1 - 1.0, y0, y1, HAT_Z0 + 10, HAT_Z1 - 8, r=2.0, axis='y'))
+    cut.append(box(HAT_X0 - 1, ix0 + 0.5, -10, 10, HAT_Z0 + 17, HAT_Z1 - 8, r=3.0, axis='x'))
     s = s - union_all(cut)
     add = []
     for sx, (x0, x1) in ((1, (HAT_X0 + 0.2, ix0)), (-1, (ix1, HAT_X1 - 0.2))):   # tongues go down through the head top
@@ -301,16 +320,17 @@ def camera_hat():
     return s + union_all(add)
 
 def snap_pin():
-    """3 mm push pin: up through the pelvis into the torso boss, split end clicks over the boss top"""
-    L_ = 1.0 + 1.4 + 3.0 + 10.0      # head recess + plate + boss  (pin head is 1.4 thick, in the recess)
-    w = 2.9
-    s = box(0, L_ + 1.8, -w / 2, w / 2, 0, w)
-    s = s + box(-1.4, 0.01, -3.0, 3.0, 0, w)                                         # head
-    s = s - box(L_ - 6.0, L_ + 2.0, -0.45, 0.45, -1, w + 1)                           # split
+    """3 mm push pin: up through the pelvis into the torso boss, split end clicks over the boss top.
+    Round 3.0 mm with flats top + bottom (prints lying down), fits the 3.3 mm holes."""
+    Ls = (Z0 + 10) - (Z_PEL0 + 1.0 + 1.4) + 0.15        # shaft from under the head to the barb shoulder
+    sec = [(y, z) for y, z in circle(0, 1.3, 1.5, 24)]
+    sec = [(y, min(max(z, 0.0), 2.6)) for y, z in sec]
+    s = prism('x', sec, 0, Ls + 1.8)
+    s = s + box(-1.4, 0.01, -3.0, 3.0, 0, 2.6)                                          # head (sits in the pelvis recess)
+    s = s - box(Ls - 6.0, Ls + 2.0, -0.4, 0.4, -1, 4)                                    # split: the 2 halves flex in
     for sd in (1, -1):
-        yb = sd * w / 2
-        s = s + prism('z', [(L_ - 0.1, yb), (L_ + 0.2, yb + sd * 0.45), (L_ + 1.8, yb - sd * 0.0)] if sd > 0 else
-                      [(L_ - 0.1, yb), (L_ + 1.8, yb), (L_ + 0.2, yb + sd * 0.45)], 0, w)
+        yb = sd * 1.45
+        s = s + prism('z', [(Ls - 0.05, yb), (Ls + 0.15, yb + sd * 0.5), (Ls + 1.8, yb)], 0, 2.6)
     return s
 
 def arm(side):
@@ -320,7 +340,8 @@ def arm(side):
     prims = [(1, sv.cyl(0, 0, pz0, pz1, 10.0)),
              (1, sv.box(0, 62, -8.5, 8.5, pz0, pz1)),
              (1, sv.cyl(62, 0, pz0, pz1, 9.5)),                     # hand
-             (-1, sv.cyl(0, 0, pz0 - 1, pz1 + 1, 3.0))]               # 6 mm hole: horn screw goes in from outside, head sits on the horn (like the legs)
+             (-1, sv.cyl(0, 0, pz0 - 1, pz1 + 1, 3.0)),
+             (-1, sv.box(23, 35, -4.0, 4.0, pz0 - 1, pz1 + 1)), (-1, sv.box(40, 52, -4.0, 4.0, pz0 - 1, pz1 + 1))]   # lighter; 6 mm hole: horn screw goes in from outside, head sits on the horn (like the legs)
     # horn pocket (same triangle as the legs, pointing down the arm)
     hw0 = L.HORN_W0 / 2 + L.POCKET_CLR; hw1 = L.HORN_W1 / 2 + L.POCKET_CLR; Ln = L.HORN_LEN + L.POCKET_CLR + L.ARM_EXTRA
     prims.append((-1, sv.cyl(0, 0, pz0 - 1, L.HRN0 + L.POCKET_DEPTH, L.HORN_HUB_D / 2 + L.POCKET_CLR)))
@@ -341,7 +362,8 @@ def back_cover():
     w = 2 * IY + 1.8 - 0.4; h = Z_TOP1 - Z_DECK1
     p = rbox(0, w, 0, h, 0, 1.6, 1.5)
     p = p + box(w / 2 - 10, w / 2 + 10, h - 1.2, h + 0.8, 0, 3.2)   # pull tab at the top
-    v = union_all([rbox(w / 2 - 30, w / 2 + 30, 10 + k * 6, 12.5 + k * 6, -1, 3, 1.2) for k in range(4)])
+    v = union_all([rbox(w / 2 + cx - 12, w / 2 + cx + 12, 6 + k * 11.5, 14 + k * 11.5, -1, 3, 2.5)
+                   for k in range(5) for cx in (-28, 0, 28)])
     return p - v, w, h
 
 def head_cover():
