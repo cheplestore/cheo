@@ -41,9 +41,12 @@ SK_R0, SK_R1 = COL_R1 + 0.5, COL_R1 + 2.5        # head skirt around the collar
 # ---------------- head ----------------
 HX0, HX1, HW = -21.0, 20.0, 31.0                 # back, front, half width
 HFL = 3.0                                        # head floor
-HZ0, HZ1 = HEAD_Z0, HEAD_Z0 + HFL + 1.0 + SCR_H + 1.0 + 1.0 + CAM_BH + 0.8 + 2.0
+HZ0, HZ1 = HEAD_Z0, HEAD_Z0 + 55.0              # camera board stands behind the screen (50.2 tall)
 SCR_Z0 = HZ0 + HFL + 1.0                          # screen board bottom
-CAM_ZC = SCR_Z0 + SCR_H + 1.0 + 1.0 + CAM_BH / 2  # camera board centre height (lies flat above the screen)
+CB_Z0 = HZ0 + HFL - 1.0                          # camera board bottom edge (stands in a 1 mm floor groove)
+CAM_ZC = CB_Z0 + 39.9                             # lens centre: 39.9 mm up from the board's USB end (measured)
+CB_FRONT = HX1 - 2.0 - SCR_STACK - 1.0 - 6.4      # board's chip side: white plug (6.4) clears the screen's back
+CB_BACK = CB_FRONT - 1.6
 ht = 2.0
 MIC_X, MIC_Z = -8.0, (HEAD_Z0 + 3.0 + 1.0) + 22.0   # behind the screen, right side
 # ---------------- arms ----------------
@@ -151,7 +154,12 @@ def head():
     zc = SCR_Z0 + SCR_H / 2
     cut.append(box(HX1 - ht - 1, HX1 + 1, -38.5 / 2, 38.5 / 2, zc - 30.5 / 2, zc + 30.5 / 2, r=1.0, axis='x'))
     # camera lens hole in the forehead
-    cut.append(box(HX1 - ht - 1, HX1 + 1, -3.4, 3.4, CAM_ZC - 3.4, CAM_ZC + 3.4, r=3.0, axis='x'))
+    wtop = zc + 30.5 / 2 + 1.5                    # keep a 1.5 mm bar above the screen window
+    cut.append(box(HX1 - ht - 1, HX1 - ht + 1.0, -6.0, 6.0, wtop, CAM_ZC + 4.6, r=2.0, axis='x'))
+    cut.append(box(HX1 - ht + 0.99, HX1 + 1, -6.8, 6.8, wtop, CAM_ZC + 5.3, r=2.0, axis='x'))
+    # camera board: groove in the floor for its bottom edge + room for its USB-C plug
+    cut.append(box(CB_BACK - 0.25, CB_FRONT + 0.25, -15.65, 15.65, CB_Z0, HZ0 + HFL + 1))
+    cut.append(box(CB_BACK - 0.25, CB_FRONT + 3.8, -5.0, 5.0, CB_Z0, HZ0 + HFL + 1))
     # mic hole in the right side of the head (INMP441 taped inside, its sound hole over this)
     cut.append(box(MIC_X - 1.0, MIC_X + 1.0, -HW - 1, -HW + ht + 1, MIC_Z - 1.0, MIC_Z + 1.0, r=0.9, axis='y'))
     # floor: horn screw access + cables
@@ -166,18 +174,23 @@ def head():
     # screen: stops behind the PCB (it is pushed against the front wall) + side guides
     # little snap ridges just behind the screen board (it clicks past them, then can't slide back)
     bx = HX1 - ht - SCR_STACK - 0.2 - 0.7
-    add.append(prism('y', [(bx - 0.7, SCR_Z0), (bx, SCR_Z0 + 0.6), (bx + 0.7, SCR_Z0)], -18, 18))
+    for sd in (1, -1):   # bottom ridges only outside the camera board (its white plug sits in the middle)
+        y0, y1 = sorted((sd * 16.5, sd * 26.0))
+        add.append(prism('y', [(bx - 0.7, SCR_Z0), (bx, SCR_Z0 + 0.6), (bx + 0.7, SCR_Z0)], y0, y1))
     for side in (1, -1):
         y0, y1 = sorted((side * (CAM_BW / 2 - 3), side * (HW - ht)))
         add.append(prism('y', [(bx - 0.7, SCR_Z0 + SCR_H + 0.41), (bx + 0.7, SCR_Z0 + SCR_H + 0.41), (bx, SCR_Z0 + SCR_H - 0.2)], y0, y1))
-    add.append(box(HX1 - ht - SCR_STACK - 2, HX1 - ht + 0.01, -SCR_W / 2 - 1.5, SCR_W / 2 + 1.5, HZ0 + HFL - 0.01, SCR_Z0))
+    add.append(box(HX1 - ht - SCR_STACK - 0.6, HX1 - ht + 0.01, -SCR_W / 2 - 1.5, SCR_W / 2 + 1.5, HZ0 + HFL - 0.01, SCR_Z0))
+    for sd in (1, -1):   # wider ledge only at the sides, under the ridges
+        y0, y1 = sorted((sd * 16.5, sd * (SCR_W / 2 + 1.5)))
+        add.append(box(HX1 - ht - SCR_STACK - 2, HX1 - ht - SCR_STACK - 0.59, y0, y1, HZ0 + HFL - 0.01, SCR_Z0))
     # shelf the camera board lies on (above the screen)
     add.append(box(HX0 + 3.0, HX1 - ht + 0.01, -HW + ht - 0.01, -CAM_BW / 2 + 3, SCR_Z0 + SCR_H + 0.4, SCR_Z0 + SCR_H + 1.4))
     add.append(box(HX0 + 3.0, HX1 - ht + 0.01, CAM_BW / 2 - 3, HW - ht + 0.01, SCR_Z0 + SCR_H + 0.4, SCR_Z0 + SCR_H + 1.4))
-    # camera module frame behind the lens hole (camera pushed in from inside)
-    c = CAM_SQ / 2 + 0.25
-    fr = box(HX1 - ht - CAM_T + 0.5, HX1 - ht + 0.01, -c - 1.4, c + 1.4, CAM_ZC - c - 1.4, CAM_ZC + c + 1.4) - box(HX1 - ht - CAM_T, HX1 - ht + 0.5, -c, c, CAM_ZC - c, CAM_ZC + c)
-    add.append(fr)
+    # 2 ribs behind the camera board so it can't tip backward (the white plug stops it tipping forward)
+    for sd in (1, -1):
+        y0, y1 = sorted((sd * 9.0, sd * 14.0))
+        add.append(box(CB_BACK - 2.0 - 0.25, CB_BACK - 0.25, y0, y1, HZ0 + HFL - 0.01, HZ0 + HFL + 30))
     # horn pad: solid floor under the horn for its little screws
     return s + union_all(add)
 

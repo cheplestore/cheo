@@ -22,7 +22,7 @@ Fits the leg design in `leg/` (same coordinates: the pelvis replaces `L_pelvis_t
 5. **Chest:** speaker face against the grille, amp lying flat behind/under the neck servo (foam tape).
 6. **Arms:** each MG90S goes in from the inside, gear through the shoulder hole, tabs screwed to the pad (2 long screws). Arm presses onto the horn (same triangle pocket as the legs), short screw through the arm.
 7. **Neck:** SG90 goes up through the top plate from inside, its 2 tab screws up into the plate. Screw the SG90 horn to the head's floor with the horn's tiny screws, press the head onto the servo, then the center screw through the hole in the head floor. Set the SG90 to 90 (straight ahead) first.
-8. **Head:** screen slides in from the back and clicks past the little ridges. Camera board lies on the shelf above the screen, the camera clicks into the square frame behind the forehead hole. INMP441 taped inside the right side, its sound hole over the small side hole. Cables go down through the 2 slots in the head floor and the neck.
+8. **Head:** screen slides in from the back and clicks past the little ridges. The LAFVIN ESP32S3-Camera board stands up behind it, chip + camera side facing forward, USB-C end down in the floor groove, between the screen and the 2 ribs. Its camera looks out the forehead window (see `head_section.png`). Program the camera board before putting it in (its USB-C faces the floor). INMP441 taped inside the right side, its sound hole over the small side hole. Cables go down through the 2 slots in the head floor and the neck.
 9. Back cover and head cover slide down from the top.
 
 ## Numbers
