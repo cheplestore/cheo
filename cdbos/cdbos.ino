@@ -44,7 +44,7 @@
 // =====================================================================
 //  SETTINGS
 // =====================================================================
-#define FW_VERSION 13                      // bump this every GitHub release
+#define FW_VERSION 14                      // bump this every GitHub release
 #define OS_NAME "CDBos"
 #if __has_include("build_num.h")
 #include "build_num.h"                     // GitHub writes this when it builds the firmware
@@ -172,7 +172,9 @@ uint16_t eyeC = 0x05FF;  // eye color (changes with themes / night / rainbow)
 #else
 #define HAS_WAKE 0
 #endif
-const float WAKE_THRESHOLD = 0.80;         // how sure he must be that he heard "Hey Cheo" (0 to 1)
+const float WAKE_THRESHOLD = 0.90;         // how sure he must be that he heard "Hey Cheo" (0 to 1)
+const int   WAKE_HITS = 2;                 // ...for this many slices in a row (~0.25 s each): one noisy blip can't wake him
+const uint32_t WAKE_COOLDOWN_MS = 2500;    // ignore the model for this long after he wakes
 
 // =====================================================================
 //  TYPES
@@ -1887,7 +1889,13 @@ void wakeTask(void*) {                 // runs the "Hey Cheo" model on the micro
     for (size_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++)
       if (strstr(res.classification[i].label, "cheo")) sc = res.classification[i].value;
     wakeScore = sc;
-    if (sc >= WAKE_THRESHOLD && !talkActive() && !songPlaying) { wakeHeard = true; run_classifier_init(); }
+    static int hits = 0;
+    static uint32_t lastWake = 0;
+    if (millis() - lastWake < WAKE_COOLDOWN_MS) { hits = 0; continue; }
+    hits = (sc >= WAKE_THRESHOLD) ? hits + 1 : 0;
+    if (hits >= WAKE_HITS && !talkActive() && !songPlaying) {
+      wakeHeard = true; hits = 0; lastWake = millis(); run_classifier_init();
+    }
   }
 }
 #endif
@@ -3786,7 +3794,7 @@ bool otaCheck(bool announce) {
   HTTPClient h;
   h.setTimeout(8000);
   h.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  if (!h.begin(c, String(UPDATE_URL) + "version.txt")) return false;
+  if (!h.begin(c, String(UPDATE_URL) + "version.txt?t=" + String(millis()))) return false;   // ?t= skips GitHub's 5-minute cache
   int code = h.GET();
   if (code != 200) {
     h.end();
