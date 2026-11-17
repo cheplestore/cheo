@@ -40,7 +40,7 @@ TW_Z0 = Z_TOP1                                   # sits on the torso top
 SG_CASE_Z0 = TW_Z0 + TW_BASE                     # SG90 stands on the base, shaft up at (0, 0)
 SGX0, SGX1 = -(SG_L - SG_SHAFT), SG_SHAFT        # case x range (long end toward the back)
 TAB_X0, TAB_X1 = (SGX0 + SGX1) / 2 - SG_TAB_SPAN / 2, (SGX0 + SGX1) / 2 + SG_TAB_SPAN / 2
-HEAD_Z0 = SG_CASE_Z0 + SG_HORN_TOP + 0.2         # head floor sits on the horn
+HEAD_Z0 = SG_CASE_Z0 + SG_HORN_TOP - L.POCKET_DEPTH + 0.1   # horn sits up inside the socket under the head floor
 # ---------------- head ----------------
 HX0, HX1, HW = -19.5, 17.5, 31.0                 # back, front, half width
 HFL = 4.0                                        # head floor (horn socket underneath)
@@ -233,7 +233,7 @@ def neck_tower():
     """Hollow neck box: the SG90 stands in a cradle inside (snap hooks on its tabs, no screws) and all the
     head wires run up inside it, hidden. Open at the top, just under the head. Clicks onto 4 legs on the torso."""
     b0, b1 = TW_Z0, TW_Z0 + TW_BASE
-    top = HEAD_Z0 - 1.5
+    top = SG_CASE_Z0 + SG_HORN_TOP - 2.0 - 3.0      # 3 mm under the horn: it can spin over the walls (even if the real horn sits 2 mm lower)
     s = rbox(NB_X0, NB_X1, -NB_HW, NB_HW, b0, top, 4.0)
     s = s - rbox(NB_X0 + NB_T, NB_X1 - NB_T, -NB_HW + NB_T, NB_HW - NB_T, b1, top + 1, 2.5)
     cut = []

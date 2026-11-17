@@ -23,7 +23,7 @@ Fits the leg design in `leg/` (same coordinates; the pelvis replaces `L_pelvis_t
 4. **Head onto the neck:** horn pressed into the triangle socket under the head (no screw needed), face forward, press the head onto the SG90 gear. Head wires down into the neck box (leave about 5 cm slack inside it so the head can turn). Head cover slides down from the top.
 5. **Camera hat (later):** slide the camera board up into the hat's side grooves (chip + camera side facing forward), then press the hat onto the head top until both tongues click. Its wires go down through the hole under it.
 6. **Chest:** speaker presses face-first between the ribs (little bumps hold it). Amp slides into the bay under the top plate from the back.
-7. **Deck tray:** S3 upside down (pins up) presses into its 4 corners, USB-C to the left side hole. PCA9685 into its corners in front. Mini560s stand in their 2 pockets. Slide the tray in from the back onto the shelf.
+7. **Deck tray:** S3 upside down (pins up) presses into its 4 corners, USB-C to the left side hole. PCA9685 into its corners in front, **servo pin rows toward the back** (toward the S3): servo plugs stand ~32 mm tall and would hit the speaker shelf at the front. Mini560s stand in their 2 pockets. Slide the tray in from the back onto the shelf.
 8. **Arm servos:** in from inside, gear out through the shoulder hole, 2 long screws each.
 9. **Pelvis:** push the 4 snap pins up through the pelvis into the torso bosses until they click. Battery in with the switch facing back, door on, back cover slides down.
 
