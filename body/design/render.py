@@ -31,7 +31,7 @@ for n,s in legs.items():
     if n=='pelvis_test_mount': continue
     col = W if n in ('thigh','shin','foot') else Y
     leg_items += [(polys_of(s),col,False,(0,0,0)), (polys_of(s),col,True,(0,0,0))]
-body_items=[(polys_of(d['pelvis']),G,False,(0,0,0)),(polys_of(d['torso']),Y,False,(0,0,0)),(polys_of(d['head']),W,False,(0,0,0)),
-            (polys_of(d['arm_L']),W,False,(0,0,0)),(polys_of(d['arm_R']),W,False,(0,0,0))]
-view(leg_items+body_items,'cheo_body_front.png',12,-35,'Cheo biped - front')
-view(body_items,'cheo_body_back_open.png',22,145,'Back, covers off: battery bay (bottom), deck, chest',zoom=0.75)
+O=(0.98,0.42,0.10)
+body_items=[(polys_of(d[k]),O,False,(0,0,0)) for k in ('pelvis','torso','neck_tower','head','camera_hat','arm_L','arm_R','deck_tray')]
+view(leg_items+body_items,'cheo_body_front.png',12,-35,'Cheo v2')
+view(body_items,'cheo_body_back_open.png',22,145,'Back, covers off',zoom=0.75)

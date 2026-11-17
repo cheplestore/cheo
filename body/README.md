@@ -1,31 +1,35 @@
-# Cheo biped: body, neck, head, arms (v1)
+# Cheo biped: body, neck, head, arms (v2)
 
-Fits the leg design in `leg/` (same coordinates: the pelvis replaces `L_pelvis_test_mount`).
+Fits the leg design in `leg/` (same coordinates; the pelvis replaces `L_pelvis_test_mount`).
+**No glue and no screws for any electronics**: every board presses or slides into a printed holder, so parts can be swapped when the design changes.
 
-## Parts to print (PCTG, 3 walls, 15% infill)
-| File | Print it | Holds |
+## Parts to print (PCTG, 3 walls, 15% infill), all already turned the right way
+| File | How many | Holds |
 |---|---|---|
-| `pelvis.stl` | flat side down, as exported | the 2 hip-roll MG90S (legs hang from these) |
-| `torso.stl` | lying on its chest, as exported | battery bay, deck, ESP32-S3, PCA9685, Mini560s, speaker + amp, 2 arm MG90S, neck SG90 |
-| `battery_door.stl` | flat | covers the battery, window for the on/off switch |
-| `back_cover.stl` | flat | slides down into the back of the chest |
-| `head.stl` | lying on its face, as exported | 1.8" screen, camera board, camera, INMP441 mic |
-| `head_cover.stl` | flat | slides down into the back of the head |
-| `arm_L.stl`, `arm_R.stl` | flat | press onto the arm servo horns |
+| `pelvis.stl` | 1 | the 2 hip-roll MG90S (legs hang from these) |
+| `snap_pin.stl` | 6 (2 spare) | pins the pelvis to the torso, no screws |
+| `torso.stl` | 1 | battery bay, deck, speaker, amp bay, arm servo pads |
+| `deck_tray.stl` | 1 | ESP32-S3, PCA9685, 2 Mini560 (press-fit corners and pockets) |
+| `battery_door.stl`, `back_cover.stl` | 1 each | unchanged from v1 |
+| `neck_tower.stl` | 1 | SG90 stands in it, snap hooks hold its tabs |
+| `head.stl`, `head_cover.stl` | 1 each | screen (window over the real lit area), INMP441 mic |
+| `camera_hat.stl` | 1 (optional) | camera board standing up, camera centred |
+| `arm_L.stl`, `arm_R.stl` | 1 each | unchanged from v1 |
 
 ## Assembly
-1. **Hips:** hip-roll servos go into the pelvis rings the same way as the leg rings (2 long screws each).
-2. **Pelvis to torso:** 4 small self-tapping screws (M2 x 8) up through the pelvis into the torso's front bosses. Leg servo cables come up through the 2 slots in front of the battery, then through the slot in the deck.
-3. **Battery:** holder lies in the bay with its switch + wire facing the back. Wire goes up through the slot in the back-right corner of the deck.
-   **Door:** push its top edge up into the slot under the deck, swing the bottom in, let it drop into the groove in the pelvis. To open: lift it a little, swing the bottom out.
-4. **Deck (middle shelf):** ESP32-S3 (USB-C toward the left side hole) and PCA9685 lie flat, Mini560s stand against the side walls. Double-sided foam tape.
-5. **Chest:** speaker face against the grille, amp lying flat behind/under the neck servo (foam tape).
-6. **Arms:** each MG90S goes in from the inside, gear through the shoulder hole, tabs screwed to the pad (2 long screws). Arm presses onto the horn (same triangle pocket as the legs), short screw through the arm.
-7. **Neck:** SG90 goes up through the top plate from inside, its 2 tab screws up into the plate. Screw the SG90 horn to the head's floor with the horn's tiny screws, press the head onto the servo, then the center screw through the hole in the head floor. Set the SG90 to 90 (straight ahead) first.
-8. **Head:** screen slides in from the back and clicks past the little ridges. The LAFVIN ESP32S3-Camera board stands up behind it, chip + camera side facing forward, USB-C end down in the floor groove; a dab of hot glue at the back of its bottom edge stops it tipping. Put the screen in first: slide it in flat along the floor, lift its bottom edge onto the 1 mm step at the front, push until it clicks. Its camera looks out the forehead window (see `head_section.png`). Program the camera board before putting it in (its USB-C faces the floor). INMP441 taped inside the right side, its sound hole over the small side hole. Cables go down through the 2 slots in the head floor and the neck.
-9. Back cover and head cover slide down from the top.
+1. **Neck servo:** set the SG90 to 90. Push it down into the neck tower (cable end toward the back) until both hooks click over its tabs. Feed its cable down the slot at the back.
+2. **Neck tower onto the torso:** cable down through the hole in the torso top, then press the tower down onto the 2 legs until they click.
+3. **Head:** plug the screen wires on, slide the screen in from the back, lift its bottom edge onto the 1 mm step, push until it clicks. Slide the INMP441 into the rails under the ceiling (sound hole up, under the small top hole). Wires down through the 2 big floor holes.
+4. **Head onto the neck:** horn pressed into the triangle socket under the head (no screw needed), face forward, press the head onto the SG90 gear. Head wires down through the 2 big slots beside the tower (leave 5 cm slack). Head cover slides down from the top.
+5. **Camera hat (later):** slide the camera board up into the hat's side grooves (chip + camera side facing forward), then press the hat onto the head top until both tongues click. Its wires go down through the hole under it.
+6. **Chest:** speaker presses face-first between the ribs (little bumps hold it). Amp slides into the bay under the top plate from the back.
+7. **Deck tray:** S3 upside down (pins up) presses into its 4 corners, USB-C to the left side hole. PCA9685 into its corners in front. Mini560s stand in their 2 pockets. Slide the tray in from the back onto the shelf.
+8. **Arm servos:** in from inside, gear out through the shoulder hole, 2 long screws each.
+9. **Pelvis:** push the 4 snap pins up through the pelvis into the torso bosses until they click. Battery in with the switch facing back, door on, back cover slides down.
+
+Wiring (pins unchanged): see `book/step9_wiring.png`. The step pictures in `book/` show v1 and will be redrawn for v2.
 
 ## Numbers
-- Torso 62 x 100 x 94 mm, head 41 x 62 x 53 mm, about 37 cm tall overall.
-- Legs still clear the bigger pelvis: hip roll outward stops at 55 deg (code limit is 45).
-- Estimated weight: printed parts ~340 g solid (less with 15% infill) + ~400 g servos, battery, boards = **650-750 g**, above the ~600 g the walking simulation liked. Weigh him once built; if the hip servos struggle, the arms are the first thing to leave off (~47 g).
+- Robot about 43 cm tall with the hat (37 cm without), ~690 g.
+- Physics re-checked with v2: walks at 1.0-1.6 s per step, hip roll 52% of an MG90S at 1.6 s.
+- `check_views_v2.png`: cuts through the neck, head, hat, deck tray and chest showing every part has room (2 mm for wires).
