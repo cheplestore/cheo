@@ -105,8 +105,10 @@ TRAY_T = 1.6
 LEGSLOT = (4.0, 22.0, 34.0, 45.0)                # leg cables come up here (deck + tray)
 BATSLOT = (-27.8, -12.0, -46.0, -36.0)           # battery wire comes up here
 AMP_X0, AMP_X1 = SLOT_X1 + 0.4, SLOT_X1 + 0.4 + AMP_D + 0.6
-NECK_LEG_Y = 9.2                                 # neck tower snap legs
-WIRE_Y0, WIRE_Y1 = 13.0, 19.2                    # head wire slots in the torso top (each side)
+NB_X0, NB_X1, NB_HW = TAB_X0 - 0.2 - 2.2 - 1.2 - 1.6, TAB_X1 + 0.2 + 2.2 + 1.2 + 1.6, 19.1   # hollow neck box (outer)
+NB_T = 1.6
+NECK_WIRE = (-7.5, 9.5, 8.5, 17.5)               # x0, x1, |y|0, |y|1: wire openings under the neck (torso top + box floor)
+NECK_LEGS = [(-1, NB_X0 + NB_T + 0.6), (1, NB_X1 - NB_T - 0.6 - 1.6 - 1.0)]   # (barb direction, leg x0)
 
 def torso():
     s = rbox(X0, X1, -YW, YW, Z0, Z_TOP1, 4.0)
@@ -134,11 +136,10 @@ def torso():
         cut.append(box(-20 + k * 9, -14 + k * 9, -YW - 1, -IY + 1, Z_DECK1 + 22, Z_DECK1 + 25, r=1.2, axis='y'))
     for sd in 'LR':
         cut.append(part_solid([(1, arm_servo(sd).cyl(0, 0, IY - ARM_P_Y - 1.5, YW - ARM_P_Y + 1, 6.6))]))
-    # top plate: neck tower snap slots, SG90 cable hole, 2 big head-wire slots
+    # top plate: 2 big wire openings under the neck box (all head wires + the neck servo cable go down here)
     for sd in (1, -1):
-        y0, y1 = sorted((sd * WIRE_Y0, sd * WIRE_Y1))
-        cut.append(rbox(-8, 8, y0, y1, Z_TOP0 - 1, Z_TOP1 + 1, 2.5))
-    cut.append(rbox(TAB_X0 + 0.4, SGX0 + 0.6, -4.0, 4.0, Z_TOP0 - 1, Z_TOP1 + 1, 1.5))
+        y0, y1 = sorted((sd * NECK_WIRE[2], sd * NECK_WIRE[3]))
+        cut.append(rbox(NECK_WIRE[0], NECK_WIRE[1], y0, y1, Z_TOP0 - 1, Z_TOP1 + 1, 2.5))
     s = s - union_all(cut)
     add = []
     deck = box(X0, IX1 + 0.01, -IY - 0.01, IY + 0.01, Z_DECK0, Z_DECK1)
@@ -168,13 +169,14 @@ def torso():
         yb0, yb1 = sorted((side * (AMP_W / 2 - 0.05), side * (AMP_W / 2 + 0.31)))
         add.append(bump(AMP_X0 + 3, AMP_X1 - 3, yb0, yb1, az0 + 4, az0 + 8))
     add.append(box(AMP_X0, AMP_X1, -AMP_W / 2 - 1.9, AMP_W / 2 + 1.9, az0 - 1.6, az0))
-    # 2 snap legs up through the neck tower's base (tower clicks down onto them)
-    for sd in (1, -1):
-        y0, y1 = sorted((sd * NECK_LEG_Y, sd * (NECK_LEG_Y + 1.6)))
-        bt = Z_TOP1 + TW_BASE
-        add.append(box(-4.0, 4.0, y0, y1, Z_TOP1 - 0.01, bt + 1.6))
-        yb = sd * (NECK_LEG_Y + 1.6)
-        add.append(prism('x', [(yb, bt + 0.15), (yb + sd * 0.7, bt + 0.15), (yb, bt + 1.6)], -4.0, 4.0))
+    # 4 snap legs up through the neck box floor (the box clicks down onto them)
+    bt = Z_TOP1 + TW_BASE
+    for bxd, lx0 in NECK_LEGS:
+        for sd in (1, -1):
+            y0, y1 = sorted((sd * 9.0, sd * 16.0))
+            add.append(box(lx0, lx0 + 1.6, y0, y1, Z_TOP1 - 0.01, bt + 1.6))
+            xb = lx0 + (1.6 if bxd > 0 else 0.0)
+            add.append(prism('y', [(xb, bt + 0.15), (xb + bxd * 0.7, bt + 0.15), (xb, bt + 1.6)], y0, y1))
     for side in ('L', 'R'):
         sv = arm_servo(side)
         tab_out = 16.0 + 2.5
@@ -225,23 +227,30 @@ def deck_tray():
     return s + union_all(add)
 
 def neck_tower():
-    """SG90 stands in this, snap hooks hold its tabs (no screws). Snaps onto the torso top."""
+    """Hollow neck box: the SG90 stands in a cradle inside (snap hooks on its tabs, no screws) and all the
+    head wires run up inside it, hidden. Open at the top, just under the head. Clicks onto 4 legs on the torso."""
     b0, b1 = TW_Z0, TW_Z0 + TW_BASE
-    s = rbox(TAB_X0 - 4.0, TAB_X1 + 4.0, -12.0, 12.0, b0, b1, 4.0)
-    blk = box(TAB_X0 - 0.2, TAB_X1 + 0.2, -SG_W / 2 - 1.8, SG_W / 2 + 1.8, b1 - 0.01, b1 + SG_TAB_Z0)
-    s = s + blk
-    cut = [box(SGX0 - 0.25, SGX1 + 0.25, -SG_W / 2 - 0.25, SG_W / 2 + 0.25, b1, b1 + SG_TAB_Z0 + 1),           # pocket
-           box(TAB_X0 + 0.4, SGX0 + 0.1, -3.5, 3.5, b0 - 1, b1 + 7),                                       # cable channel
-           box(SGX1 - 0.1, TAB_X1 - 1.5, -3.0, 3.0, b1 + SG_TAB_Z0 - 3, b1 + SG_TAB_Z0 + 1)]              # (lighter)
-    for sd in (1, -1):     # slots for the torso's 2 snap legs
-        y0, y1 = sorted((sd * (NECK_LEG_Y - 0.3), sd * (NECK_LEG_Y + 1.9)))
-        cut.append(box(-4.4, 4.4, y0, y1, b0 - 1, b1 + 1))
+    top = HEAD_Z0 - 1.5
+    s = rbox(NB_X0, NB_X1, -NB_HW, NB_HW, b0, top, 4.0)
+    s = s - rbox(NB_X0 + NB_T, NB_X1 - NB_T, -NB_HW + NB_T, NB_HW - NB_T, b1, top + 1, 2.5)
+    cut = []
+    for sd in (1, -1):                         # floor: wire openings (same as the torso top) + leg slots
+        y0, y1 = sorted((sd * NECK_WIRE[2], sd * NECK_WIRE[3]))
+        cut.append(rbox(NECK_WIRE[0], NECK_WIRE[1], y0, y1, b0 - 1, b1 + 1, 2.5))
+        for bxd, lx0 in NECK_LEGS:
+            y0, y1 = sorted((sd * 8.7, sd * 16.3))
+            cut.append(box(lx0 - 0.3, lx0 + 1.9, y0, y1, b0 - 1, b1 + 1))
     s = s - union_all(cut)
-    add = []
+    # cradle for the SG90
+    blk = box(TAB_X0 - 0.2, TAB_X1 + 0.2, -SG_W / 2 - 1.8, SG_W / 2 + 1.8, b1 - 0.01, b1 + SG_TAB_Z0)
+    blk = blk - union_all([box(SGX0 - 0.25, SGX1 + 0.25, -SG_W / 2 - 0.25, SG_W / 2 + 0.25, b1, b1 + SG_TAB_Z0 + 1),
+                           box(TAB_X0 - 1, SGX0 + 0.1, -3.5, 3.5, b1, b1 + 7),                      # cable out the back end
+                           box(SGX1 - 0.1, TAB_X1 - 1.5, -3.0, 3.0, b1 + SG_TAB_Z0 - 3, b1 + SG_TAB_Z0 + 1)])
+    add = [blk]
     lip_z = b1 + SG_TAB_Z0 + SG_TAB_T + 0.15
     for sx, xe in ((-1, TAB_X0 - 0.2), (1, TAB_X1 + 0.2)):
         a0, a1 = sorted((xe + sx * 0.6, xe + sx * 2.2))
-        add.append(box(a0, a1, -4.0, 4.0, b1 - 0.01, lip_z + 1.0))                                   # flexible arm
+        add.append(box(a0, a1, -4.0, 4.0, b1 - 0.01, lip_z + 1.0))
         add.append(prism('y', [(xe + sx * 0.61, lip_z), (xe - sx * 1.0, lip_z), (xe + sx * 0.61, lip_z + 2.0)], -4.0, 4.0))
     return s + union_all(add)
 
@@ -259,9 +268,7 @@ def head():
     cut.append(prism('z', [(-hw0, 0), (hw0, 0), (hw1, Ln), (-hw1, Ln)][::-1], HZ0 - 1, HZ0 + L.POCKET_DEPTH).transform(lambda v: (v[0], v[1], v[2])))
     cut.append(prism('z', circle(0, 0, 1.6, 16), HZ0 - 1, HZ0 + HFL + 1))
     # head wires down through the floor (2 big holes)
-    for sd in (1, -1):
-        x0, x1 = sorted((sd * 9.0, sd * (HX1 - ht + 0.5)))
-        cut.append(rbox(x0, x1, -7.0, 7.0, HZ0 - 1, HZ0 + HFL + 1, 2))
+    cut.append(rbox(HX0 + 3.0, -9.4, -24.0, 24.0, HZ0 - 1, HZ0 + HFL + 1, 3))   # all head wires go down here, into the neck box
     for k in range(3):     # side vents (lighter, lets the speaker-side air out)
         zc = HZ0 + 14 + k * 7
         cut.append(box(HX0 + 5, HX0 + 17, -HW - 1, HW + 1, zc - 1.5, zc + 1.5, r=1.4, axis='y'))
