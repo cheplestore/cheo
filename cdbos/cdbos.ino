@@ -40,11 +40,12 @@
 #include <Adafruit_ST7735.h>
 #include <ESP_I2S.h>
 #include <NimBLEDevice.h>
+#include <Wire.h>
 
 // =====================================================================
 //  SETTINGS
 // =====================================================================
-#define FW_VERSION 15                      // bump this every GitHub release
+#define FW_VERSION 16                      // bump this every GitHub release
 #define OS_NAME "CDBos"
 #if __has_include("build_num.h")
 #include "build_num.h"                     // GitHub writes this when it builds the firmware
@@ -94,7 +95,7 @@ const int   CHEPLE_UDP_PORT = 4211;        // Cheo announces events to the Chepl
 
 // face tracking
 const int   FACE_UDP_PORT = 4210;
-const float PAN_CENTER = 90, PAN_MIN = 20, PAN_MAX = 160;
+const float PAN_CENTER = 90, PAN_MIN = 30, PAN_MAX = 150;   // v16: +-60 so the head wires don't get pulled
 const float PAN_GAIN = 0.05;
 const int   PAN_DIR = 1;
 const int   NEAR_CM = 90;
@@ -133,10 +134,16 @@ const uint32_t HOLD_TIME = 20000, TRANS_MS = 520;
 #define MIC_SD   42
 #define HAS_MIC  1
 #define SCREEN_ROTATION 1
+#define HAS_ARMS 1       // v16: arm servos: PCA9685 (SDA 17, SCL 18) channels 10/11, or straight to pins 40/41
+#define I2C_SDA  17
+#define I2C_SCL  18
+#define ARM_L_PIN 40
+#define ARM_R_PIN 41
 #else
 // ---- ESP32-C6 ----
 #define SCREEN_ROTATION 3   // C6 Cheo's screen is mounted the other way
 #define HAS_MIC  0
+#define HAS_ARMS 0
 #define TFT_SCLK 6
 #define TFT_MOSI 7
 #define TFT_CS   18
@@ -183,6 +190,18 @@ enum Screen { SCR_EYES, SCR_CLOCK, SCR_WEATHER, SCR_NOTIF, SCR_ALERT, SCR_STUDY,
               SCR_COUNT, SCR_PET, SCR_GAME, SCR_CALL };
 enum Mood { NORMAL, HAPPY, SAD, ANGRY, SURPRISED, SLEEPY, LOVE, THINKING,
             WINK, DIZZY, CRY, COOL, STARS, CONFUSED, MOOD_COUNT };
+// ---- v16: arms + neck moves ----
+enum Gest { GS_NONE, GS_WAVE, GS_CHEER, GS_HUG, GS_POINT, GS_SHRUG, GS_SHAKE, GS_LOOKL, GS_LOOKR, GS_LOOKAROUND };
+Gest gest = GS_NONE;
+uint32_t gestStart = 0, gestUntil = 0;
+int neckTrim = 0, neckDir = 1;             // Settings: neck center + which way is left
+int armTrimL = 0, armTrimR = 0, armDir = 1;
+bool armsOn = true, idleMoves = true, screenFlip = true;
+float manualNeck = -1; uint32_t manualNeckUntil = 0;
+float manualArmL = -1, manualArmR = -1; uint32_t manualArmUntil = 0;
+bool pcaFound = false;
+void gesture(Gest g, uint32_t ms = 0);
+
 enum IdleAnim { IA_NONE, IA_LOOK, IA_YAWN, IA_HUM, IA_SIGH, IA_SNEEZE, IA_EAT };
 enum Game { G_NONE, G_GUESS, G_RPS, G_REACT };
 
@@ -1670,7 +1689,14 @@ String processReply(String r, Mood& outMood, bool& learned) {
     else if (v.indexOf("stop") >= 0) endGame();
     else wantGame = G_GUESS;
   }
-  if (takeFlag(r, "win")) { sound(34); petGain(0, 10, 0, 10); }
+  if (takeFlag(r, "win")) { sound(34); petGain(0, 10, 0, 10); gesture(GS_CHEER); }
+  if (takeFlag(r, "wave")) gesture(GS_WAVE);
+  if (takeFlag(r, "cheer")) gesture(GS_CHEER);
+  if (takeFlag(r, "hug")) gesture(GS_HUG);
+  if (takeFlag(r, "point")) gesture(GS_POINT);
+  if (takeFlag(r, "shrug")) gesture(GS_SHRUG);
+  if (takeFlag(r, "shake")) gesture(GS_SHAKE);
+  if (takeTag(r, "look", v)) { v.toLowerCase(); gesture(v.indexOf("left") >= 0 ? GS_LOOKL : v.indexOf("right") >= 0 ? GS_LOOKR : GS_LOOKAROUND); }
   while (takeTag(r, "countdown", v)) handleCountdownTag(v);
   if (takeTag(r, "eyes", v)) setEyeColor(findEyeColor(v));
   if (takeTag(r, "night", v)) { v.toLowerCase(); setNight(v.indexOf("off") < 0); }
@@ -1722,6 +1748,7 @@ String buildSys() {
     "[rps: rock|paper|scissors] when the user throws in rock paper scissors. [win] when the user gets your trivia question, riddle or chat game right.\n"
     "[countdown: YYYY-MM-DD | label] add a days-until countdown, [countdown: delete label] remove one. "
     "[eyes: blue|green|pink|orange|purple|white|red|rainbow] eye color. [night: on|off] night mode. [briefing] give the daily briefing (weather, schedule, news).\n"
+    "[wave] [cheer] [hug] [point] [shrug] move your arms. [shake] shake your head no. [look: left|right|around] turn your head.\n"
     "You can play trivia, riddles, would you rather and 20 questions right in the chat.\n"
     "If the question needs live or current info (news, scores, prices, recent events), reply ONLY with [search: short query].\n";
   s += "\nRight now: ";
@@ -1835,6 +1862,16 @@ bool localCommands(String q, String& reply, Mood& m) {
     return true;
   }
   if (l == "dance" || l == "dance!") { wantDance = true; reply = "Watch my moves!"; m = STARS; return true; }
+  if (l == "wave" || l == "wave hi" || l == "say hi" || l == "wave at me") { gesture(GS_WAVE); reply = "Hi there!"; m = HAPPY; return true; }
+  if (l == "hands up" || l == "arms up" || l == "raise your arms" || l == "raise your hands" || l == "cheer") { gesture(GS_CHEER); reply = "Yay!"; m = STARS; return true; }
+  if (l == "hug" || l == "hug me" || l == "give me a hug") { gesture(GS_HUG); reply = "Big hug!"; m = LOVE; return true; }
+  if (l == "point" || l == "point at me") { gesture(GS_POINT); reply = "I see you!"; m = HAPPY; return true; }
+  if (l == "shrug") { gesture(GS_SHRUG); reply = "I don't know!"; m = CONFUSED; return true; }
+  if (l == "shake your head") { gesture(GS_SHAKE); reply = "Nope!"; m = NORMAL; return true; }
+  if (l == "look left") { gesture(GS_LOOKL); reply = "Looking left."; m = NORMAL; return true; }
+  if (l == "look right") { gesture(GS_LOOKR); reply = "Looking right."; m = NORMAL; return true; }
+  if (l == "look around") { gesture(GS_LOOKAROUND); reply = "Let me see..."; m = THINKING; return true; }
+  if (l == "look at me" || l == "look forward" || l == "arms down" || l == "put your arms down") { gesture(GS_NONE); manualNeckUntil = manualArmUntil = 0; reply = "Okay!"; m = HAPPY; return true; }
   if (l == "party" || l == "party mode" || l == "party time") { wantParty = true; reply = "Woohoo!"; m = STARS; return true; }
   return false;
 }
@@ -2329,8 +2366,122 @@ void showNotification(const NotifMsg& n) {
 // =====================================================================
 //  FACE TRACKING + PRESENCE
 // =====================================================================
+// =====================================================================
+//  v16: ARMS + NECK MOVES
+// =====================================================================
+const float ARM_DOWN_DEG = 20;             // servo angle with the arm hanging down (leaves a little room to swing back)
+
+void gesture(Gest g, uint32_t ms) {
+  const uint32_t len[] = { 0, 2600, 1800, 2200, 2000, 1400, 1600, 2200, 2200, 4200 };
+  gest = g; gestStart = millis(); gestUntil = gestStart + (ms ? ms : len[g]);
+}
+
+#if HAS_ARMS
+#define PCA_ADDR 0x40
+void pcaW(uint8_t reg, uint8_t v) { Wire.beginTransmission(PCA_ADDR); Wire.write(reg); Wire.write(v); Wire.endTransmission(); }
+void pcaUs(uint8_t ch, int us) {           // us = 0 -> output off (servo goes limp)
+  uint16_t off = us > 0 ? (uint16_t)((uint32_t)us * 4096UL / 19840UL) : 0;
+  Wire.beginTransmission(PCA_ADDR);
+  Wire.write(0x06 + 4 * ch); Wire.write(0); Wire.write(0);
+  Wire.write(off & 0xFF); Wire.write(us > 0 ? (off >> 8) : 0x10);
+  Wire.endTransmission();
+}
+void armsBegin() {
+  Wire.begin(I2C_SDA, I2C_SCL, 400000);
+  Wire.beginTransmission(PCA_ADDR);
+  pcaFound = Wire.endTransmission() == 0;
+  if (pcaFound) {
+    pcaW(0x00, 0x10); pcaW(0xFE, 121); pcaW(0x00, 0x20); delay(2); pcaW(0x00, 0xA0);   // 50 Hz, auto-increment
+    Serial.println("Arms: PCA9685 found, channels 10 (left) + 11 (right)");
+  } else {
+    ledcAttach(ARM_L_PIN, 50, 14); ledcAttach(ARM_R_PIN, 50, 14);
+    Serial.println("Arms: no PCA9685, using pins 40 (left) + 41 (right)");
+  }
+}
+void armOut(int side, float deg) {         // deg < 0 = off
+  int us = deg < 0 ? 0 : 500 + (int)(constrain(deg, 0.0f, 180.0f) / 180.0f * 1900.0f);
+  if (pcaFound) pcaUs(side == 0 ? 10 : 11, us);
+  else ledcWrite(side == 0 ? ARM_L_PIN : ARM_R_PIN, us ? (uint32_t)us * 16383UL / 20000UL : 0);
+}
+float armServoDeg(int side, float a) {     // a: 0 = hanging down, 90 = straight forward, 150 = up high
+  a = constrain(a, -15.0f, 155.0f);
+  float d = (side == 0) == (armDir > 0) ? ARM_DOWN_DEG + a : 180 - ARM_DOWN_DEG - a;
+  return d + (side == 0 ? armTrimL : armTrimR);
+}
+void armsLoop() {
+  static uint32_t last = 0, stillSince = 0;
+  static float cur[2] = { 0, 0 }, sent[2] = { -99, -99 };
+  static bool limp = false;
+  uint32_t now = millis();
+  if (now - last < 20) return;
+  last = now;
+  if (!armsOn) { if (!limp) { armOut(0, -1); armOut(1, -1); limp = true; sent[0] = sent[1] = -99; } return; }
+  float t = now / 1000.0f, gt = (now - gestStart) / 1000.0f;
+  float tg[2];
+  bool g = now < gestUntil;
+  if (now < manualArmUntil) { tg[0] = manualArmL; tg[1] = manualArmR; }
+  else if (g && gest == GS_WAVE)  { tg[0] = 0;  tg[1] = 140 + 15 * sinf(gt * 2 * PI * 2.2f); }
+  else if (g && gest == GS_CHEER) { tg[0] = tg[1] = 145 + 8 * sinf(gt * 2 * PI * 3); }
+  else if (g && gest == GS_HUG)   { tg[0] = tg[1] = 80; }
+  else if (g && gest == GS_POINT) { tg[0] = 0;  tg[1] = 90; }
+  else if (g && gest == GS_SHRUG) { tg[0] = tg[1] = 30; }
+  else if (dancing) {
+    bool b = beatCount & 1;
+    if (danceStyle == 1) tg[0] = tg[1] = b ? 130 : 40;
+    else { tg[0] = b ? 110 : 25; tg[1] = b ? 25 : 110; }
+  } else if (talkActive()) { tg[0] = 12 + 10 * sinf(t * 2.1f); tg[1] = 12 + 10 * sinf(t * 1.7f + 1.3f); }
+  else {
+    float base = 0;
+    switch (mood) {
+      case HAPPY: case COOL: base = 10; break;
+      case STARS: base = 25 + 10 * sinf(t * 4); break;
+      case LOVE: base = 45; break;
+      case SURPRISED: base = 70; break;
+      case ANGRY: base = 25 + 5 * sinf(t * 18); break;
+      default: base = 0;
+    }
+    tg[0] = tg[1] = base + (idleMoves ? 2 * sinf(t * 0.8f) : 0);
+  }
+  bool moved = false;
+  for (int i = 0; i < 2; i++) {
+    float d = constrain(tg[i] - cur[i], -6.0f, 6.0f);           // max ~300 deg/s: easy on the gears
+    cur[i] += d;
+    if (fabsf(cur[i] - sent[i]) > 0.6f) { armOut(i, armServoDeg(i, cur[i])); sent[i] = cur[i]; moved = true; }
+  }
+  if (moved) { stillSince = now; limp = false; }
+  else if (!limp && now - stillSince > 2500 && fabsf(cur[0]) < 3 && fabsf(cur[1]) < 3) {   // resting down: stop pushing
+    armOut(0, -1); armOut(1, -1); limp = true; sent[0] = sent[1] = -99;
+  }
+}
+#else
+void armsBegin() {}
+void armsLoop() {}
+#endif
+
+// neck: gestures, idle glances, a little sway while talking (face tracking still wins when the camera sends faces)
+float neckTarget(float target, uint32_t now) {
+  float gt = (now - gestStart) / 1000.0f;
+  static uint32_t nextGlance = 15000, glanceEnd = 0;
+  static float glanceTo = PAN_CENTER;
+  if (now < manualNeckUntil) return manualNeck;
+  if (now < gestUntil) {
+    if (gest == GS_SHAKE) return PAN_CENTER + 22 * sinf(gt * 2 * PI * 2.0f);
+    if (gest == GS_LOOKL) return PAN_CENTER + 50 * neckDir;
+    if (gest == GS_LOOKR) return PAN_CENTER - 50 * neckDir;
+    if (gest == GS_LOOKAROUND) return gt < 1.3f ? PAN_CENTER + 45 * neckDir : gt < 2.9f ? PAN_CENTER - 45 * neckDir : PAN_CENTER;
+    if (gest == GS_WAVE || gest == GS_POINT) return PAN_CENTER + 8 * neckDir;
+  }
+  if (dancing || faceVisible) return target;
+  if (talkActive()) return target + 5 * sinf(now / 650.0f);
+  if (idleMoves && !asleep) {
+    if (now > nextGlance) { glanceTo = PAN_CENTER + random(-35, 36); glanceEnd = now + 1800 + random(1500); nextGlance = glanceEnd + 9000 + random(15000); }
+    if (now < glanceEnd) return glanceTo;
+  }
+  return target;
+}
+
 void servoWrite(float angle) {
-  angle = constrain(angle, 0.0f, 180.0f);
+  angle = constrain(angle + neckTrim, 0.0f, 180.0f);
   uint32_t us = 500 + (uint32_t)(angle / 180.0f * 1900.0f);
   ledcWrite(SERVO_PIN, us * 16383UL / 20000UL);
 }
@@ -2354,6 +2505,7 @@ void greetUser() {
   sound(16);
   setMood(HAPPY, false);
   moodUntil = millis() + 6000;
+  gesture(GS_WAVE);
   speak(l, HAPPY);
 }
 
@@ -2412,6 +2564,7 @@ void trackingLoop() {
   if (!faceVisible && now - lastFaceSeen > 20000 && !dancing) panAngle += (PAN_CENTER - panAngle) * 0.01f;
   float target = panAngle;
   if (dancing) target = PAN_CENTER + ((beatCount & 1) ? 1 : -1) * (danceStyle == 1 ? 15 : 10);
+  target = constrain(neckTarget(target, now), PAN_MIN, PAN_MAX);
   servoPos += (target - servoPos) * 0.25f;
   if (fabsf(servoPos - lastServoWritten) > 0.4f) { servoWrite(servoPos); lastServoWritten = servoPos; }
 }
@@ -3943,6 +4096,18 @@ small{color:#89a}a{color:#3cf}.row{display:flex;justify-content:space-between;al
 <div class=c><b>iPhone hotspot</b> <small>(backup when nothing else works)</small><input id=hs placeholder="Hotspot name"><input id=hp type=password placeholder="Password (blank = keep)">
 <b>Groq key</b><input id=gk type=password placeholder="Groq key">
 <b>Edge Impulse API key</b> <small>(for teaching "Hey Cheo")</small><input id=ek type=password placeholder="ei_..."><button class=b onclick=save()>Save</button></div>
+<div class=c><b>Neck, arms + screen</b> <small id=armhw></small>
+<div class=row><span>Neck center</span><span><button onclick="nt(-5)">&#9664;&#9664;</button><button onclick="nt(-1)">&#9664;</button> <b id=ntv>0</b> <button onclick="nt(1)">&#9654;</button><button onclick="nt(5)">&#9654;&#9654;</button></span></div>
+<small>Tap until his face points straight ahead. Saved right away.</small>
+<div class=row><span>Left arm down</span><span><button onclick="at('atl',-2)">&#8722;</button> <b id=atlv>0</b> <button onclick="at('atl',2)">+</button></span></div>
+<div class=row><span>Right arm down</span><span><button onclick="at('atr',-2)">&#8722;</button> <b id=atrv>0</b> <button onclick="at('atr',2)">+</button></span></div>
+<small>Tap until each arm hangs straight down.</small>
+<div class=row><span>Arms on</span><input type=checkbox id=armon style="width:auto" onchange="mset('arms',armon.checked?1:0)"></div>
+<div class=row><span>Little idle moves</span><input type=checkbox id=idl style="width:auto" onchange="mset('idle',idl.checked?1:0)"></div>
+<div class=row><span>Flip screen</span><input type=checkbox id=sfl style="width:auto" onchange="mset('sflip',sfl.checked?1:0)"></div>
+<button onclick="mset('adir',-M.adir)">Arms go the wrong way</button><button onclick="mset('ndir',-M.ndir)">Left/right swapped</button><br>
+<button onclick="g('/move?do=wave')">Wave</button><button onclick="g('/move?do=cheer')">Cheer</button><button onclick="g('/move?do=hug')">Hug</button>
+<button onclick="g('/move?do=point')">Point</button><button onclick="g('/move?do=shake')">Shake head</button><button onclick="g('/move?do=around')">Look around</button><button onclick="g('/move?do=stop')">Stop</button></div>
 <div class=c><b>Memory backup</b> <small>(copy this before moving Cheo to a new board, paste it back after)</small>
 <textarea id=bk rows=5 style="width:95%;background:#0b1020;color:#fff;border:1px solid #345;border-radius:8px;font-size:14px"></textarea>
 <button onclick="post('/restore',{m:bk.value}).then(t=>alert(t))">Restore memory</button></div>
@@ -3962,6 +4127,13 @@ var scan=()=>{found.innerHTML='<small>searching...</small>';var p=()=>{fetch('/s
 found.innerHTML=j.list.length?j.list.map(n=>`<div class="row n" data-s="${esc(n.s)}" onclick="pick(this)"><span>${esc(n.s)}${n.k?' <small>(saved)</small>':''}</span><small>${n.lock?'🔒':'open'} ${bars(n.r)}</small></div>`).join(''):'<small>nothing found</small>'})};p()}
 var add=()=>{if(!ss.value)return;msg.textContent='saving...';post('/addwifi',{s:ss.value,p:pw.value}).then(t=>{msg.textContent=t;pw.value='';load()})}
 var save=()=>{post('/save',{hs:hs.value,hp:hp.value,gk:gk.value,ek:ek.value}).then(t=>{alert(t);hp.value='';gk.value='';ek.value='';load()})}
+var M={};
+var mshow=(j)=>{M=j;ntv.textContent=j.ntrim;atlv.textContent=j.atl;atrv.textContent=j.atr;armon.checked=j.arms==1;idl.checked=j.idle==1;sfl.checked=j.sflip==1;
+armhw.textContent=j.pca?'(arms on PCA9685 ch 10 + 11)':'(arms on pins 40 + 41)'}
+var mset=(k,v)=>{fetch('/motion?'+k+'='+v).then(r=>r.json()).then(mshow)}
+var nt=(d)=>{mset('ntrim',(M.ntrim||0)+d)}
+var at=(k,d)=>{mset(k,(M[k]||0)+d)}
+fetch('/motion').then(r=>r.json()).then(mshow);
 load();
 </script></body></html>)HTML";
 const char TRAIN_PAGE[] PROGMEM = R"HTML(<!DOCTYPE html><html><head><meta charset=utf-8>
@@ -4303,6 +4475,32 @@ void setupWeb() {
       server.send(200, "text/plain", "Saved! Cheo will join " + s + " whenever he's near it.");
     }
   });
+  server.on("/move", []() {                  // v16: /move?do=wave|cheer|hug|point|shrug|shake|left|right|around|stop
+    String d = server.arg("do");
+    Gest g = d == "wave" ? GS_WAVE : d == "cheer" ? GS_CHEER : d == "hug" ? GS_HUG : d == "point" ? GS_POINT : d == "shrug" ? GS_SHRUG :
+             d == "shake" ? GS_SHAKE : d == "left" ? GS_LOOKL : d == "right" ? GS_LOOKR : d == "around" ? GS_LOOKAROUND : GS_NONE;
+    gesture(g); if (g == GS_NONE) manualNeckUntil = manualArmUntil = 0;
+    server.send(200, "text/plain", "ok");
+  });
+  server.on("/pose", []() {                  // /pose?neck=90&l=0&r=0  holds for 15 s (for lining things up)
+    if (server.hasArg("neck")) { manualNeck = constrain(server.arg("neck").toFloat(), PAN_MIN, PAN_MAX); manualNeckUntil = millis() + 15000; }
+    if (server.hasArg("l") || server.hasArg("r")) { manualArmL = server.arg("l").toFloat(); manualArmR = server.arg("r").toFloat(); manualArmUntil = millis() + 15000; }
+    server.send(200, "text/plain", "ok");
+  });
+  server.on("/motion", []() {                // read + change the motion settings
+    if (server.hasArg("ntrim")) { neckTrim = constrain(server.arg("ntrim").toInt(), -60, 60); prefs.putChar("ntrim", neckTrim); manualNeck = PAN_CENTER; manualNeckUntil = millis() + 8000; }
+    if (server.hasArg("ndir")) { neckDir = server.arg("ndir").toInt() < 0 ? -1 : 1; prefs.putChar("ndir", neckDir); }
+    if (server.hasArg("atl")) { armTrimL = constrain(server.arg("atl").toInt(), -40, 40); prefs.putChar("atl", armTrimL); manualArmL = manualArmR = 0; manualArmUntil = millis() + 8000; }
+    if (server.hasArg("atr")) { armTrimR = constrain(server.arg("atr").toInt(), -40, 40); prefs.putChar("atr", armTrimR); manualArmL = manualArmR = 0; manualArmUntil = millis() + 8000; }
+    if (server.hasArg("adir")) { armDir = server.arg("adir").toInt() < 0 ? -1 : 1; prefs.putChar("adir", armDir); }
+    if (server.hasArg("arms")) { armsOn = server.arg("arms") == "1"; prefs.putUChar("arms", armsOn); }
+    if (server.hasArg("idle")) { idleMoves = server.arg("idle") == "1"; prefs.putUChar("idlemv", idleMoves); }
+    if (server.hasArg("sflip")) { screenFlip = server.arg("sflip") == "1"; prefs.putUChar("sflip", screenFlip); tft.setRotation((SCREEN_ROTATION + (screenFlip ? 2 : 0)) % 4); }
+    String j = "{\"ntrim\":" + String(neckTrim) + ",\"ndir\":" + String(neckDir) + ",\"atl\":" + String(armTrimL) + ",\"atr\":" + String(armTrimR) +
+               ",\"adir\":" + String(armDir) + ",\"arms\":" + String(armsOn ? 1 : 0) + ",\"idle\":" + String(idleMoves ? 1 : 0) +
+               ",\"sflip\":" + String(screenFlip ? 1 : 0) + ",\"pca\":" + String(pcaFound ? 1 : 0) + "}";
+    server.send(200, "application/json", j);
+  });
   server.on("/delwifi", []() { delNetwork(server.arg("i").toInt()); server.send(200, "text/plain", "ok"); });
   server.on("/save", HTTP_POST, []() {
     lastWebHit = millis();
@@ -4377,12 +4575,18 @@ void setup() {
   pinMode(BTN_PIN, INPUT_PULLUP);
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
+  prefs.begin("cheo", false);
+  neckTrim = (int8_t)prefs.getChar("ntrim", 0); neckDir = prefs.getChar("ndir", 1) < 0 ? -1 : 1;
+  armTrimL = (int8_t)prefs.getChar("atl", 0); armTrimR = (int8_t)prefs.getChar("atr", 0);
+  armDir = prefs.getChar("adir", 1) < 0 ? -1 : 1; armsOn = prefs.getUChar("arms", 1); idleMoves = prefs.getUChar("idlemv", 1);
+  screenFlip = prefs.getUChar("sflip", HAS_ARMS ? 1 : 0);   // v16: the biped head holds the screen the other way up
   ledcAttach(SERVO_PIN, 50, 14);
-  servoWrite(PAN_CENTER);
+  servoWrite(PAN_CENTER);                                    // uses the saved neck center: no more 40-degree jump at boot
+  armsBegin();
 
   SPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
   tft.initR(INITR_BLACKTAB);
-  tft.setRotation(SCREEN_ROTATION);
+  tft.setRotation((SCREEN_ROTATION + (screenFlip ? 2 : 0)) % 4);
   tft.fillScreen(C_BLACK);
   canvas.cp437(true);
   canvas.setTextWrap(false);
@@ -4435,6 +4639,7 @@ void loop() {
   wifiLoop();
   ancsLoop();
   trackingLoop();
+  armsLoop();
   buttonLoop();
   checkReminders();
   studyLoop();
