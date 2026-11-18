@@ -44,7 +44,7 @@
 // =====================================================================
 //  SETTINGS
 // =====================================================================
-#define FW_VERSION 14                      // bump this every GitHub release
+#define FW_VERSION 15                      // bump this every GitHub release
 #define OS_NAME "CDBos"
 #if __has_include("build_num.h")
 #include "build_num.h"                     // GitHub writes this when it builds the firmware
@@ -784,11 +784,13 @@ void setupVoiceBuffer() {
   Serial.printf("Voice buffer: %u KB\n", (unsigned)(vbuf ? n * 2 / 1024 : 0));
 }
 
+volatile bool otaBusy = false;                              // v15: everything else pauses while an update downloads
+
 void playerTask(void*) {                                    // plays the saved-up voice smoothly
   int16_t chunk[256];
   float lvl = 0;
   for (;;) {
-    if (!vPlaying) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
+    if (!vPlaying || otaBusy) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
     uint32_t have = vHead - vTail;
     if (!vStarted) {
       if (have < vPrebuf && !vDone) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
@@ -1874,7 +1876,7 @@ static int wakeGet(size_t off, size_t len, float* out) { numpy::int16_to_float(&
 void wakeTask(void*) {                 // runs the "Hey Cheo" model on the microphone all the time
   run_classifier_init();
   for (;;) {
-    if (!wakeOn || recording || trainLeft > 0) { wqTail = wqHead; vTaskDelay(pdMS_TO_TICKS(50)); continue; }
+    if (!wakeOn || recording || trainLeft > 0 || otaBusy) { wqTail = wqHead; vTaskDelay(pdMS_TO_TICKS(50)); continue; }
     uint32_t have = wqHead - wqTail;
     if (have > (uint32_t)(WQ_N - EI_CLASSIFIER_SLICE_SIZE)) { wqTail = wqHead - EI_CLASSIFIER_SLICE_SIZE; have = EI_CLASSIFIER_SLICE_SIZE; }  // fell behind: skip ahead
     if (have < (uint32_t)EI_CLASSIFIER_SLICE_SIZE) { vTaskDelay(pdMS_TO_TICKS(10)); continue; }
@@ -1906,6 +1908,7 @@ void micTask(void*) {
   static int32_t raw[256];
   float dc = 0;
   for (;;) {
+    if (otaBusy) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }       // updating: leave the CPU + Wi-Fi to the download
     size_t n = micI2S.readBytes((char*)raw, sizeof(raw)) / 4;
     if (n == 0) { vTaskDelay(pdMS_TO_TICKS(10)); continue; }
     float sum = 0;
@@ -3820,15 +3823,20 @@ bool otaCheck(bool announce) {
   render();
   sound(30);
 
+  otaBusy = true;                                     // pause the wake word, mic and voice player
+  vPlaying = false;
+  delay(300);
+  drawUpdateFace(); drawCentered("downloading...", 114, 1, C_GRAY); pushCanvas();
   WiFiClientSecure c2;
   c2.setInsecure();
+  c2.setHandshakeTimeout(20);
   httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   httpUpdate.rebootOnUpdate(false);
   httpUpdate.onProgress([](int cur, int total) {
     int p = total > 0 ? (int)((int64_t)cur * 100 / total) : 0;
     if (p != otaPct) { otaPct = p; drawUpdateFace(); pushCanvas(); }
   });
-  t_httpUpdate_return r = httpUpdate.update(c2, String(UPDATE_URL) + FW_FILE);
+  t_httpUpdate_return r = httpUpdate.update(c2, String(UPDATE_URL) + FW_FILE + "?t=" + String(millis()));
   if (r == HTTP_UPDATE_OK) {
     otaPct = 100;
     drawUpdateFace();
@@ -3839,6 +3847,7 @@ bool otaCheck(bool announce) {
     ESP.restart();
     return true;
   }
+  otaBusy = false;
   lastErr = "Update failed: " + httpUpdate.getLastErrorString();
   Serial.println(lastErr);
   screen = SCR_EYES;
