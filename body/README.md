@@ -13,7 +13,7 @@ Fits the leg design in `leg/` (same coordinates; the pelvis replaces `L_pelvis_t
 | `battery_door.stl`, `back_cover.stl` | 1 each | unchanged from v1 |
 | `neck_tower.stl` | 1 | hollow neck box: SG90 stands in a cradle inside (snap hooks), all head wires run up inside it, hidden |
 | `head.stl`, `head_cover.stl` | 1 each | screen (window over the real lit area), INMP441 mic |
-| `camera_hat.stl` | 1 (optional) | camera board standing up, camera centred |
+| `camera_hat.stl` | 1 (optional) | camera board standing up, camera centred. Prints upside down (top on the bed), no supports |
 | `arm_L.stl`, `arm_R.stl` | 1 each | unchanged from v1 |
 
 ## Assembly

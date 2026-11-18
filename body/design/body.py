@@ -311,6 +311,9 @@ def camera_hat():
     # camera window (camera sits ~3 mm behind the front wall), flared
     cut.append(box(ix1 - 0.5, ix1 + 1.0, -5.0, 5.0, CAM_ZC - 4.2, CAM_ZC + 4.2, r=2.0, axis='x'))
     cut.append(box(ix1 + 0.99, HAT_X1 + 1, -6.2, 6.2, CAM_ZC - 5.2, CAM_ZC + 5.2, r=2.0, axis='x'))
+    # pointed (45 deg) lower edges: the hat prints upside down, so these edges build up without supports
+    cut.append(prism('x', [(-5.0, CAM_ZC - 3.0), (5.0, CAM_ZC - 3.0), (0.0, CAM_ZC - 8.0)], ix1 - 0.5, ix1 + 1.0))
+    cut.append(prism('x', [(-6.2, CAM_ZC - 4.0), (6.2, CAM_ZC - 4.0), (0.0, CAM_ZC - 10.2)], ix1 + 0.99, HAT_X1 + 1))
     # slits that turn the bottom of the front + back walls into snap tongues
     for xw0, xw1 in ((HAT_X0 - 1, ix0 + 0.5), (ix1 - 0.5, HAT_X1 + 1)):
         for sd in (1, -1):
@@ -318,8 +321,11 @@ def camera_hat():
             cut.append(box(xw0, xw1, y0, y1, HAT_Z0 - 1, HAT_Z0 + 14))
     for sd in (1, -1):
         y0, y1 = sorted((sd * (iy - 0.5), sd * (HAT_HW + 1)))
-        cut.append(box(CB_X1 + 1.5, ix1 - 1.0, y0, y1, HAT_Z0 + 10, HAT_Z1 - 8, r=2.0, axis='y'))
-    cut.append(box(HAT_X0 - 1, ix0 + 0.5, -10, 10, HAT_Z0 + 17, HAT_Z1 - 8, r=3.0, axis='x'))
+        cut.append(box(CB_X1 + 1.5, ix1 - 1.0, y0, y1, HAT_Z0 + 12, HAT_Z1 - 8, r=1.0, axis='y'))
+        xc = (CB_X1 + 1.5 + ix1 - 1.0) / 2; hw = (ix1 - 1.0 - CB_X1 - 1.5) / 2
+        cut.append(prism('y', [(xc - hw, HAT_Z0 + 13), (xc + hw, HAT_Z0 + 13), (xc, HAT_Z0 + 13 - hw)], y0, y1))
+    cut.append(box(HAT_X0 - 1, ix0 + 0.5, -7, 7, HAT_Z0 + 24, HAT_Z1 - 8, r=2.0, axis='x'))
+    cut.append(prism('x', [(-7.0, HAT_Z0 + 25), (7.0, HAT_Z0 + 25), (0.0, HAT_Z0 + 18)], HAT_X0 - 1, ix0 + 0.5))   # pointed, stays above the tongue
     s = s - union_all(cut)
     add = []
     for sx, (x0, x1) in ((1, (HAT_X0 + 0.2, ix0)), (-1, (ix1, HAT_X1 - 0.2))):   # tongues go down through the head top
@@ -401,7 +407,7 @@ if __name__ == '__main__':
         csg.write_stl_clean(place(out['deck_tray']), 'stl/deck_tray.stl', 'deck_tray')      # flat
         csg.write_stl_clean(place(out['neck_tower']), 'stl/neck_tower.stl', 'neck_tower')   # upright (legs: brim/supports not needed, they hang 4 mm)
         csg.write_stl_clean(place(out['head'], Ry(90)), 'stl/head.stl', 'head')              # lies on its face
-        csg.write_stl_clean(place(out['camera_hat'], Ry(-90)), 'stl/camera_hat.stl', 'hat')  # lies on its back
+        csg.write_stl_clean(place(out['camera_hat'], Rx(180)), 'stl/camera_hat.stl', 'hat')  # upside down: top flat on the bed, no supports
         csg.write_stl_clean(place(out['snap_pin']), 'stl/snap_pin.stl', 'pin')
         for sd in 'LR':
             sv = arm_servo(sd); Rp = sv.R.T
