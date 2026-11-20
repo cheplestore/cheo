@@ -45,7 +45,7 @@
 // =====================================================================
 //  SETTINGS
 // =====================================================================
-#define FW_VERSION 16                      // bump this every GitHub release
+#define FW_VERSION 17                      // bump this every GitHub release
 #define OS_NAME "CDBos"
 #if __has_include("build_num.h")
 #include "build_num.h"                     // GitHub writes this when it builds the firmware
@@ -462,6 +462,14 @@ extern bool wakeOn;
 String asciiOnly(const String& s);
 void drawCentered(const String& s, int y, int size, uint16_t c);
 bool someoneAround();
+void legsWalk(int dir);
+void legsStand();
+void legsSit();
+void legsCrouch();
+void legsSetOn(bool on);
+void legsSetJoint(int j, float deg);
+bool legsAvailable();
+bool legsCommand(const String& l, String& reply, Mood& m);
 
 // =====================================================================
 //  SMALL HELPERS
@@ -1680,6 +1688,9 @@ String processReply(String r, Mood& outMood, bool& learned) {
   if (takeTag(r, "sing", v)) wantSong = findSong(v);
   if (takeFlag(r, "sing")) wantSong = 4;
   if (takeFlag(r, "dance")) wantDance = true;
+  if (takeTag(r, "walk", v)) { v.toLowerCase(); legsWalk(v.indexOf("back") >= 0 ? -1 : v.indexOf("stop") >= 0 ? 0 : 1); }
+  if (takeFlag(r, "sit")) legsSit();
+  if (takeFlag(r, "stand")) legsStand();
   if (takeFlag(r, "update")) otaRequested = true;
   if (takeTag(r, "feed", v)) feedPet(v);
   if (takeTag(r, "game", v)) {
@@ -1749,6 +1760,7 @@ String buildSys() {
     "[countdown: YYYY-MM-DD | label] add a days-until countdown, [countdown: delete label] remove one. "
     "[eyes: blue|green|pink|orange|purple|white|red|rainbow] eye color. [night: on|off] night mode. [briefing] give the daily briefing (weather, schedule, news).\n"
     "[wave] [cheer] [hug] [point] [shrug] move your arms. [shake] shake your head no. [look: left|right|around] turn your head.\n"
+    "[walk: forward|back|stop] [sit] [stand] move your legs (only if the user asks you to walk, sit or stand).\n"
     "You can play trivia, riddles, would you rather and 20 questions right in the chat.\n"
     "If the question needs live or current info (news, scores, prices, recent events), reply ONLY with [search: short query].\n";
   s += "\nRight now: ";
@@ -1840,6 +1852,7 @@ bool localCommands(String q, String& reply, Mood& m) {
     dancing = false;
     partyMode = false;
     endGame();
+    legsWalk(0);
     reply = "Okay, stopping.";
     m = NORMAL;
     return true;
@@ -1873,6 +1886,7 @@ bool localCommands(String q, String& reply, Mood& m) {
   if (l == "look around") { gesture(GS_LOOKAROUND); reply = "Let me see..."; m = THINKING; return true; }
   if (l == "look at me" || l == "look forward" || l == "arms down" || l == "put your arms down") { gesture(GS_NONE); manualNeckUntil = manualArmUntil = 0; reply = "Okay!"; m = HAPPY; return true; }
   if (l == "party" || l == "party mode" || l == "party time") { wantParty = true; reply = "Woohoo!"; m = STARS; return true; }
+  if (legsCommand(l, reply, m)) return true;
   return false;
 }
 
@@ -2457,6 +2471,7 @@ void armsLoop() {
 void armsBegin() {}
 void armsLoop() {}
 #endif
+#include "legs_walk.h"
 
 // neck: gestures, idle glances, a little sway while talking (face tracking still wins when the camera sends faces)
 float neckTarget(float target, uint32_t now) {
@@ -4035,6 +4050,7 @@ Rock paper scissors <button onclick="g('/game?rps=0')">&#9994;</button><button o
 <button onclick="g('/game?g=react')">Reaction test</button><button class=b onclick="g('/game?tap=1')">TAP!</button> <small id=best></small><br>
 <button onclick="g('/game?g=stop')">Stop game</button><br><small>Guess my number: type numbers in the chat box. Reaction test: wait for green, then press his button (or TAP).</small></div>
 <div class=c><b>Faces</b><br><span id=moods></span></div>
+<div class=c><b>Legs</b><br><button onclick="g('/legs?do=walk')">Walk</button><button onclick="g('/legs?do=back')">Back</button><button onclick="g('/legs?do=stop')">Stop</button><br><button onclick="g('/legs?do=stand')">Stand</button><button onclick="g('/legs?do=crouch')">Crouch</button><button onclick="g('/legs?do=sit')">Sit</button></div>
 <div class=c><b>Screen</b><br><button onclick="g('/show?s=eyes')">Eyes</button><button onclick="g('/show?s=clock')">Clock</button><button onclick="g('/show?s=weather')">Weather</button><button onclick="g('/show?s=pet')">Pet</button><button onclick="g('/show?s=count')">Countdowns</button>
 <br>Volume <input type=range id=vol min=0 max=100 onchange="g('/vol?v='+this.value)"></div>
 <div class=c><b>Look</b><br>Eye color <select id=eye onchange="g('/eyes?c='+this.value)"></select><br>
@@ -4487,6 +4503,14 @@ void setupWeb() {
     if (server.hasArg("l") || server.hasArg("r")) { manualArmL = server.arg("l").toFloat(); manualArmR = server.arg("r").toFloat(); manualArmUntil = millis() + 15000; }
     server.send(200, "text/plain", "ok");
   });
+  server.on("/legs", []() {                  // /legs?do=walk|back|stop|stand|sit|crouch|on|off   /legs?j=2&deg=30
+    String d = server.arg("do");
+    if (d == "walk") legsWalk(1); else if (d == "back") legsWalk(-1); else if (d == "stop") legsWalk(0);
+    else if (d == "stand") legsStand(); else if (d == "sit") legsSit(); else if (d == "crouch") legsCrouch();
+    else if (d == "off") legsSetOn(false); else if (d == "on") legsSetOn(true);
+    if (server.hasArg("j")) legsSetJoint(server.arg("j").toInt(), server.arg("deg").toFloat());
+    server.send(200, "text/plain", legsAvailable() ? "ok" : "no legs (needs the S3 + PCA9685)");
+  });
   server.on("/motion", []() {                // read + change the motion settings
     if (server.hasArg("ntrim")) { neckTrim = constrain(server.arg("ntrim").toInt(), -60, 60); prefs.putChar("ntrim", neckTrim); manualNeck = PAN_CENTER; manualNeckUntil = millis() + 8000; }
     if (server.hasArg("ndir")) { neckDir = server.arg("ndir").toInt() < 0 ? -1 : 1; prefs.putChar("ndir", neckDir); }
@@ -4583,6 +4607,7 @@ void setup() {
   ledcAttach(SERVO_PIN, 50, 14);
   servoWrite(PAN_CENTER);                                    // uses the saved neck center: no more 40-degree jump at boot
   armsBegin();
+  legsBegin();
 
   SPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
   tft.initR(INITR_BLACKTAB);
@@ -4640,6 +4665,8 @@ void loop() {
   ancsLoop();
   trackingLoop();
   armsLoop();
+  legsUpdate();
+  legsSerial();
   buttonLoop();
   checkReminders();
   studyLoop();
