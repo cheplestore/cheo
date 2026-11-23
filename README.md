@@ -12,6 +12,9 @@ Cheo is a desk buddy robot with screen eyes. He runs **CDBos** (Cheo Desk Buddy 
 | `cheo-s3.bin` | The compiled firmware for the **ESP32-S3** |
 | `docs/` | Biped concept picture and walking-simulation report |
 | `leg/` | Printable biped leg (STL files), joint limits, and the design scripts |
+| `quad/` | Hexagon quadruped body (deck + dome STLs and script) |
+| `docs/BUILD_LOG.md` | **Detailed log**: legs firmware v17, wiring, calibration numbers, simulation results, quadruped design |
+| `docs/preview/` | Browser walking preview |
 
 ## First install (USB)
 
@@ -83,3 +86,7 @@ Study mode moved off the button hold: say "start study mode" or use the web page
 - `leg/stl/`: `L_` = left leg, `R_` = right leg (mirror image). `shoe_3.0mm.stl` x5 per leg (2.5 and 3.5 mm versions to fine-tune the fit).
 - `leg/JOINT_LIMITS.md`: how far each joint can move before parts hit.
 - `leg/leg_limits.h`: the same limits for the firmware.
+
+## Legs, walking and quadruped (v17)
+
+Firmware v17 adds the biped legs (`cdbos/legs_walk.h`, `cdbos/leg_limits.h`, web `/legs` page with test buttons and saved trims). The new `quad/` folder holds the hexagon quadruped body. Everything, with measurements and open issues, is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).

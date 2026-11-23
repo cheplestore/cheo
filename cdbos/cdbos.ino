@@ -4050,7 +4050,16 @@ Rock paper scissors <button onclick="g('/game?rps=0')">&#9994;</button><button o
 <button onclick="g('/game?g=react')">Reaction test</button><button class=b onclick="g('/game?tap=1')">TAP!</button> <small id=best></small><br>
 <button onclick="g('/game?g=stop')">Stop game</button><br><small>Guess my number: type numbers in the chat box. Reaction test: wait for green, then press his button (or TAP).</small></div>
 <div class=c><b>Faces</b><br><span id=moods></span></div>
-<div class=c><b>Legs</b><br><button onclick="g('/legs?do=walk')">Walk</button><button onclick="g('/legs?do=back')">Back</button><button onclick="g('/legs?do=stop')">Stop</button><br><button onclick="g('/legs?do=stand')">Stand</button><button onclick="g('/legs?do=crouch')">Crouch</button><button onclick="g('/legs?do=sit')">Sit</button></div>
+<div class=c><b>Legs</b> <small>(try these with him held in the air)</small><br>
+<button onclick="g('/legs?do=stand')">Stand</button><button onclick="g('/legs?do=crouch')">Crouch</button><button onclick="g('/legs?do=sit')">Sit</button><br>
+<button class=b onclick="g('/legs?do=walk')">Walk</button><button onclick="g('/legs?do=back')">Back</button><button onclick="g('/legs?do=stop')">Stop</button><br>
+<button onclick="g('/legs?do=center')">Center (for horns)</button><button onclick="g('/legs?do=on')">Hold</button><button onclick="if(confirm('Release the legs? They will go limp.'))g('/legs?do=off')">Limp</button><br>
+<small>Test one joint:</small><br><select id=lj><option value=0>L hip roll</option><option value=1>L hip pitch</option><option value=2>L knee</option><option value=3>L ankle pitch</option><option value=4>L ankle roll</option>
+<option value=5>R hip roll</option><option value=6>R hip pitch</option><option value=7>R knee</option><option value=8>R ankle pitch</option><option value=9>R ankle roll</option></select>
+<input type=range id=ld min=-80 max=115 value=0 style="width:45%" oninput="ldv.textContent=this.value" onchange="g('/legs?j='+lj.value+'&deg='+ld.value)"> <b id=ldv>0</b>&deg;<br><br><small>Make it straight (tap until the joint looks right, it saves by itself):</small><br>
+<button onclick="tr(-15)">&minus;15</button><button onclick="tr(-5)">&minus;5</button><button onclick="tr(-1)">&minus;1</button><button onclick="tr(1)">+1</button><button onclick="tr(5)">+5</button><button onclick="tr(15)">+15</button>
+<br><small id=lt></small><br><button onclick="if(confirm('Forget all saved trims?'))g('/legs?do=trimreset')">Reset trims</button>
+<script>var tr=(d)=>{g('/legs?trim='+lj.value+'&d='+d).then(t=>lt.textContent=t)}</script></div>
 <div class=c><b>Screen</b><br><button onclick="g('/show?s=eyes')">Eyes</button><button onclick="g('/show?s=clock')">Clock</button><button onclick="g('/show?s=weather')">Weather</button><button onclick="g('/show?s=pet')">Pet</button><button onclick="g('/show?s=count')">Countdowns</button>
 <br>Volume <input type=range id=vol min=0 max=100 onchange="g('/vol?v='+this.value)"></div>
 <div class=c><b>Look</b><br>Eye color <select id=eye onchange="g('/eyes?c='+this.value)"></select><br>
@@ -4503,11 +4512,15 @@ void setupWeb() {
     if (server.hasArg("l") || server.hasArg("r")) { manualArmL = server.arg("l").toFloat(); manualArmR = server.arg("r").toFloat(); manualArmUntil = millis() + 15000; }
     server.send(200, "text/plain", "ok");
   });
-  server.on("/legs", []() {                  // /legs?do=walk|back|stop|stand|sit|crouch|on|off   /legs?j=2&deg=30
+  server.on("/legs", []() {                  // /legs?do=walk|back|stop|stand|sit|crouch|center|on|off   /legs?j=2&deg=30
     String d = server.arg("do");
+    if (server.hasArg("trim")) { server.send(200, "text/plain", legsNudge(server.arg("trim").toInt(), server.arg("d").toInt())); return; }
+    if (server.hasArg("raw")) { server.send(200, "text/plain", legsRaw(server.arg("raw").toInt(), server.arg("ang").toFloat())); return; }
     if (d == "walk") legsWalk(1); else if (d == "back") legsWalk(-1); else if (d == "stop") legsWalk(0);
     else if (d == "stand") legsStand(); else if (d == "sit") legsSit(); else if (d == "crouch") legsCrouch();
     else if (d == "off") legsSetOn(false); else if (d == "on") legsSetOn(true);
+    else if (d == "trimreset") legsTrimReset();
+    else if (d == "center") { legsStand(); legsSetJoint(2, 45); legsSetJoint(7, 45); }   // every servo at 90 deg, knees bent 45 (for fitting the horns)
     if (server.hasArg("j")) legsSetJoint(server.arg("j").toInt(), server.arg("deg").toFloat());
     server.send(200, "text/plain", legsAvailable() ? "ok" : "no legs (needs the S3 + PCA9685)");
   });

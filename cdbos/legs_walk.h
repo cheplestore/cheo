@@ -22,6 +22,8 @@ bool legsOn = true;          // false = legs limp (use while assembling)
 static float legNow[10], legGoal[10], legSent[10];
 static bool  legWalking = false, legLimp = false;
 static float legDir = 1, legAmp = 0, legAmpGoal = 0, legPhase = 0;
+static int16_t legTrimDefault[10];        // trims from leg_limits.h (the saved nudges override them)
+static bool  legRawHold[10];             // true = joint is being held at a raw servo angle (calibration)
 
 static int legUs(float servoDeg) {
   return 500 + (int)(constrain(servoDeg, 0.0f, 180.0f) / 180.0f * 1900.0f);   // same range as the arms
@@ -29,10 +31,30 @@ static int legUs(float servoDeg) {
 
 bool legsAvailable() { return pcaFound; }
 
+static void legsLoadTrims() {            // trims saved from the web page replace the ones in leg_limits.h
+  for (int j = 0; j < 10; j++) {
+    legTrimDefault[j] = LEG[j].trim;
+    String k = "lt" + String(j);
+    if (prefs.isKey(k.c_str())) LEG[j].trim = prefs.getShort(k.c_str(), LEG[j].trim);
+  }
+}
+
 void legsBegin() {                       // call AFTER armsBegin()
+  legsLoadTrims();
   legsOn = prefs.getUChar("legson", 1);
   for (int j = 0; j < 10; j++) { legNow[j] = legGoal[j] = 0; legSent[j] = -999; }
-  if (pcaFound) Serial.println("Legs: PCA9685 found, channels 0-9");
+  if (!pcaFound) return;
+  Serial.println("Legs: PCA9685 found, channels 0-9");
+  if (!legsOn) return;                                        // saved as limp: leave the servos alone
+  for (int j = 0; j < 10; j++) {                              // start giving signal right away, one servo at a time
+    pcaUs(LEG[j].ch, legUs(servoAngle(j, 0)));                // (so they don't all pull current at once and wander)
+    legSent[j] = 0;
+    delay(120);
+  }
+}
+
+static void legsReleaseRaw() {           // go back to normal control for every joint
+  for (int j = 0; j < 10; j++) if (legRawHold[j]) { legRawHold[j] = false; legSent[j] = -999; }
 }
 
 void legsSetOn(bool on) { legsOn = on; prefs.putUChar("legson", on ? 1 : 0); }
@@ -40,7 +62,39 @@ void legsSetOn(bool on) { legsOn = on; prefs.putUChar("legson", on ? 1 : 0); }
 void legsSetJoint(int j, float deg) {    // one joint, for testing / calibrating
   if (j < 0 || j > 9) return;
   legWalking = false; legAmp = legAmpGoal = 0;
+  if (legRawHold[j]) { legRawHold[j] = false; legSent[j] = -999; }
   legGoal[j] = clampJoint(j, deg);
+}
+
+// Nudge a joint's trim by d degrees (saved right away). d = 0 just reports it.
+String legsNudge(int j, int d) {
+  if (j < 0 || j > 9) return "";
+  int t = constrain((int)LEG[j].trim + d, -90, 90);
+  LEG[j].trim = t;
+  prefs.putShort(("lt" + String(j)).c_str(), (int16_t)t);
+  if (legRawHold[j]) legRawHold[j] = false;
+  legSent[j] = -999;                                          // write the joint again with the new trim
+  return String(LEG[j].name) + ": trim = " + String(t);
+}
+
+void legsTrimReset() {                   // forget the nudges, go back to leg_limits.h
+  for (int j = 0; j < 10; j++) {
+    prefs.remove(("lt" + String(j)).c_str());
+    LEG[j].trim = legTrimDefault[j];
+    legSent[j] = -999;
+  }
+}
+
+// Calibration: put a joint at a raw servo angle (0-180), ignoring the limits and trim.
+// Returns the trim to type into leg_limits.h if the joint looks straight at this angle.
+String legsRaw(int j, float ang) {
+  if (j < 0 || j > 9) return "";
+  ang = constrain(ang, 0.0f, 180.0f);
+  legWalking = false; legAmp = legAmpGoal = 0;
+  legRawHold[j] = true;
+  pcaUs(LEG[j].ch, legUs(ang));
+  int trim = LEG[j].dir * ((int)(ang + 0.5f) - LEG[j].servoAtZero);
+  return String(LEG[j].name) + ": servo " + String((int)(ang + 0.5f)) + " -> if straight here, trim = " + String(trim);
 }
 
 static void legsSetLeg(int leg, float hipRoll, float hipPitch, float knee, float anklePitch, float ankleRoll) {
@@ -52,13 +106,14 @@ static void legsSetLeg(int leg, float hipRoll, float hipPitch, float knee, float
   legGoal[b + 4] = clampJoint(b + 4, ankleRoll);
 }
 
-void legsStand()  { legWalking = false; legAmp = legAmpGoal = 0; for (int l = 0; l < 2; l++) legsSetLeg(l, 0, 0, 0, 0, 0); }
-void legsCrouch() { legWalking = false; legAmp = legAmpGoal = 0; for (int l = 0; l < 2; l++) legsSetLeg(l, 0, 25, 50, 25, 0); }
-void legsSit()    { legWalking = false; legAmp = legAmpGoal = 0; for (int l = 0; l < 2; l++) legsSetLeg(l, 0, 75, 90, 15, 0); }
+void legsStand()  { legsReleaseRaw(); legWalking = false; legAmp = legAmpGoal = 0; for (int l = 0; l < 2; l++) legsSetLeg(l, 0, 0, 0, 0, 0); }
+void legsCrouch() { legsReleaseRaw(); legWalking = false; legAmp = legAmpGoal = 0; for (int l = 0; l < 2; l++) legsSetLeg(l, 0, 25, 50, 25, 0); }
+void legsSit()    { legsReleaseRaw(); legWalking = false; legAmp = legAmpGoal = 0; for (int l = 0; l < 2; l++) legsSetLeg(l, 0, 75, 90, 15, 0); }
 
 // dir: +1 forward, -1 backward, 0 = ease to a stop
 void legsWalk(int dir) {
   if (dir == 0) { legAmpGoal = 0; return; }       // eases out, then stands by itself
+  legsReleaseRaw();
   legDir = dir > 0 ? 1 : -1;
   legAmpGoal = 1;
   legWalking = true;
@@ -107,6 +162,7 @@ void legsUpdate() {                      // call every loop()
 
   float maxStep = legSlewDegS * dt;
   for (int j = 0; j < 10; j++) {
+    if (legRawHold[j]) continue;
     legNow[j] += constrain(legGoal[j] - legNow[j], -maxStep, maxStep);
     if (fabsf(legNow[j] - legSent[j]) > 0.3f) {
       pcaUs(LEG[j].ch, legUs(servoAngle(j, legNow[j])));
@@ -167,5 +223,8 @@ void legsWalk(int) {}
 bool legsIsWalking() { return false; }
 void legsSetOn(bool) {}
 void legsSetJoint(int, float) {}
+String legsRaw(int, float) { return ""; }
+String legsNudge(int, int) { return ""; }
+void legsTrimReset() {}
 bool legsCommand(const String&, String&, Mood&) { return false; }
 #endif

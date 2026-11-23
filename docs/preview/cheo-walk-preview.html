@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cheo walk preview</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#eef1f4;--card:#fff;--ink:#17202b;--mut:#5d6b7a;--line:#d5dce3;--l:#e8531a;--r:#2765e0;--bad:#c62828;--ok:#1b8a4b;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12171d;--card:#1b222b;--ink:#e8edf2;--mut:#93a1b0;--line:#2d3743;--l:#ff7a45;--r:#6f9bff;--bad:#ff6b6b;--ok:#4cc884;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#12171d;--card:#1b222b;--ink:#e8edf2;--mut:#93a1b0;--line:#2d3743;--l:#ff7a45;--r:#6f9bff;--bad:#ff6b6b;--ok:#4cc884;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px;max-width:980px;margin-inline:auto}
+h1{font-size:22px;margin:0 0 2px}p.s{margin:0 0 14px;color:var(--mut)}
+.g{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+@media(max-width:720px){.g{grid-template-columns:1fr}}
+.c{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+canvas{width:100%;height:auto;display:block;background:var(--bg);border-radius:6px}
+label{display:flex;justify-content:space-between;gap:8px;margin-top:8px}label b{font-weight:600}
+input[type=range]{width:100%}button{font:inherit;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.p{background:var(--l);border-color:var(--l);color:#fff}
+button:focus-visible,input:focus-visible{outline:2px solid var(--r);outline-offset:2px}
+.t{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:560px}
+th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+th{font-weight:600;color:var(--mut)}td input{width:52px;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:2px 4px}
+.bar{position:relative;height:8px;background:var(--line);border-radius:4px;min-width:110px}.bar i{position:absolute;top:-2px;width:3px;height:12px;background:var(--ink);border-radius:2px}
+.bad{color:var(--bad);font-weight:600}.ok{color:var(--ok)}
+</style></head><body>
+<h1>Cheo walk preview</h1>
+<p class="s">Runs the same gait and trims as the firmware. It checks joint and servo limits. It isn’t a physics simulation, so it can’t tell you if he will fall over.</p>
+<div class="g">
+ <div class="c"><canvas id="side" width="420" height="340"></canvas><canvas id="front" width="420" height="220" style="margin-top:8px"></canvas></div>
+ <div class="c">
+  <div><button class="p" id="play">Pause</button> <button id="dir">Direction: forward</button> <button id="rst">Reset values</button></div>
+  <label>Step size <b id="v0"></b></label><input type="range" id="step" min="0" max="25" step="1">
+  <label>Weight shift <b id="v1"></b></label><input type="range" id="shift" min="0" max="15" step="1">
+  <label>Foot lift (knee) <b id="v2"></b></label><input type="range" id="lift" min="0" max="70" step="1">
+  <label>Crouch (knee) <b id="v3"></b></label><input type="range" id="crouch" min="0" max="60" step="1">
+  <label>Time per full step <b id="v4"></b></label><input type="range" id="cycle" min="1200" max="6000" step="100">
+  <p id="sum" style="margin:10px 0 0"></p>
+ </div>
+</div>
+<div class="c t" style="margin-top:12px"><table><thead><tr><th>Joint</th><th>Angle</th><th>Servo</th><th>Servo range (0 to 180)</th><th>Over a full cycle</th><th>Trim</th></tr></thead><tbody id="tb"></tbody></table></div>
+<script>
+// name, min, max, servoAtZero, dir, trim  (from leg_limits.h)
+const LEG=[["L hip roll",-15,45,90,1,45],["L hip pitch",-80,80,90,1,22],["L knee",0,115,45,1,46],["L ankle pitch",-80,80,90,1,34],["L ankle roll",-45,45,90,1,21],
+["R hip roll",-15,45,90,-1,-30],["R hip pitch",-80,80,90,-1,-15],["R knee",0,115,135,-1,0],["R ankle pitch",-80,80,90,-1,-15],["R ankle roll",-45,45,90,-1,-90]];
+const DEF={step:7,shift:8,lift:35,crouch:30,cycle:3200},P={...DEF},U={step:"°",shift:"°",lift:"°",crouch:"°",cycle:" ms"};
+let fwd=1,run=true,phase=0,last=0;
+const $=id=>document.getElementById(id),cl=(v,a,b)=>Math.min(b,Math.max(a,v));
+function pose(ph){const s=Math.sin(ph),c=Math.cos(ph),hb=P.crouch/2,d=fwd;
+ const kL=P.crouch+P.lift*Math.max(0,-s),kR=P.crouch+P.lift*Math.max(0,s);
+ const hL=hb+P.step*d*c,hR=hb-P.step*d*c,rL=-P.shift*s,rR=P.shift*s;
+ return[rL,hL,kL,kL-hL,-rL,rR,hR,kR,kR-hR,-rR]}
+const srv=(j,a)=>{const L=LEG[j];return L[3]+L[4]*(cl(a,L[1],L[2])+L[5])};
+// tables
+$("tb").innerHTML=LEG.map((L,j)=>`<tr><td style="color:var(--${j<5?"l":"r"});font-weight:600">${L[0]}</td><td id="a${j}"></td><td id="s${j}"></td><td><div class="bar"><i id="m${j}"></i></div></td><td id="r${j}"></td><td><input type="number" id="t${j}" value="${L[5]}" min="-90" max="90" aria-label="${L[0]} trim"></td></tr>`).join("");
+LEG.forEach((L,j)=>$("t"+j).oninput=e=>{L[5]=+e.target.value||0;scan()});
+["step","shift","lift","crouch","cycle"].forEach((k,i)=>{const e=$(k);e.value=P[k];e.oninput=()=>{P[k]=+e.value;lab();scan()}});
+function lab(){["step","shift","lift","crouch","cycle"].forEach((k,i)=>$("v"+i).textContent=P[k]+U[k])}
+$("play").onclick=()=>{run=!run;$("play").textContent=run?"Pause":"Play"};
+$("dir").onclick=()=>{fwd=-fwd;$("dir").textContent="Direction: "+(fwd>0?"forward":"backward");scan()};
+$("rst").onclick=()=>{Object.assign(P,DEF);["step","shift","lift","crouch","cycle"].forEach(k=>$(k).value=P[k]);lab();scan()};
+// full-cycle scan: servo range and how often a limit is hit
+function scan(){const mn=Array(10).fill(999),mx=Array(10).fill(-999),hit=Array(10).fill(0),jh=Array(10).fill(0);const N=360;
+ for(let i=0;i<N;i++){const a=pose(i/N*2*Math.PI);a.forEach((v,j)=>{const L=LEG[j];if(v<L[1]||v>L[2])jh[j]++;const sv=L[3]+L[4]*(cl(v,L[1],L[2])+L[5]);if(sv<0||sv>180)hit[j]++;mn[j]=Math.min(mn[j],sv);mx[j]=Math.max(mx[j],sv)})}
+ let bad=[];LEG.forEach((L,j)=>{const e=$("r"+j);const p=Math.round(hit[j]/N*100),q=Math.round(jh[j]/N*100);
+  e.innerHTML=`${Math.round(cl(mn[j],-999,999))}° to ${Math.round(mx[j])}°`+(p?` <span class="bad">servo at its stop ${p}%</span>`:q?` <span class="bad">past joint limit ${q}%</span>`:` <span class="ok">fits</span>`);
+  if(p||q)bad.push(L[0])});
+ $("sum").innerHTML=bad.length?`<span class="bad">Problem joints: ${bad.join(", ")}</span>`:`<span class="ok">Every joint stays inside its limits for the whole step.</span>`}
+// drawing
+function dark(){return getComputedStyle(document.documentElement).getPropertyValue("--ink")}
+function col(n){return getComputedStyle(document.documentElement).getPropertyValue(n)}
+const TOP=38,LT=45,LS=45,AN=49,FT=-30,FF=40,PX=20;  // mm, from the leg README and sim
+function fk(h,k,ap){const r=Math.PI/180,th=h*r,sa=(h-k)*r,ft=sa+ap*r;
+ const Hp={x:0,y:TOP},K={x:Hp.x+LT*Math.sin(th),y:Hp.y+LT*Math.cos(th)},A={x:K.x+LS*Math.sin(sa),y:K.y+LS*Math.cos(sa)};
+ const S={x:A.x+AN*Math.sin(ft),y:A.y+AN*Math.cos(ft)},t={x:Math.cos(ft),y:-Math.sin(ft)};
+ return{Hp,K,A,S,t}}
+function line(c,pts,w,color){c.strokeStyle=color;c.lineWidth=w;c.lineCap="round";c.lineJoin="round";c.beginPath();pts.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));c.stroke()}
+function draw(a){const sc=$("side").getContext("2d"),W=420,H=340,k=1.45,gx=W/2,top=40;
+ sc.clearRect(0,0,W,H);
+ const L=fk(a[1],a[2],a[3]),R=fk(a[6],a[7],a[8]);
+ const low=Math.max(L.S.y,R.S.y),drop=177-low;        // lower the pelvis until the lowest foot touches the floor
+ const fy=top+177*k;
+ line(sc,[[10,fy],[W-10,fy]],2,col("--line"));
+ [[R,"--r",-4],[L,"--l",4]].forEach(([g,c,o])=>{const P=(p)=>[gx+p.x*k+o,top+(p.y+drop)*k];const col2=col(c);
+  line(sc,[P({x:0,y:0}),P(g.Hp),P(g.K),P(g.A),P(g.S)],6,col2);
+  const s=g.S,t=g.t;line(sc,[P({x:s.x+t.x*FT,y:s.y+t.y*FT}),P({x:s.x+t.x*FF,y:s.y+t.y*FF})],6,col2);
+  sc.fillStyle=col("--card");[g.Hp,g.K,g.A].forEach(p=>{const q=P(p);sc.beginPath();sc.arc(q[0],q[1],4,0,7);sc.fill();sc.strokeStyle=col2;sc.lineWidth=2;sc.stroke()})});
+ sc.fillStyle=col("--ink");sc.fillRect(gx-34,top-14+drop*k-4,64,14);
+ sc.fillStyle=col("--mut");sc.font="12px system-ui";sc.fillText("side view (toes point right)",10,18);
+ // front view
+ const fc=$("front").getContext("2d"),FW=420,FH=220,fk2=1.0,fx=FW/2,ft=20;fc.clearRect(0,0,FW,FH);
+ const lv=(g)=>g.S.y-0;const ground=ft+177*1.0+10;
+ line(fc,[[10,ground],[FW-10,ground]],2,col("--line"));
+ [[0,1,4,"--l"],[5,-1,9,"--r"]].forEach(([b,sd,ar,c])=>{const roll=a[b],aroll=a[ar];const side=b===0?1:-1;  // left leg drawn on the right of the screen
+  const g=b===0?L:R,len=g.S.y+drop,hx=fx+side*26*1.5,rad=roll*Math.PI/180*side;
+  const ex=hx+Math.sin(rad)*len*1.0,ey=ft+Math.cos(rad)*len*1.0;
+  line(fc,[[hx,ft],[ex,ey]],6,col(c));
+  const fa=(roll+aroll)*Math.PI/180*side;line(fc,[[ex-18*Math.cos(fa),ey+18*Math.sin(fa)],[ex+18*Math.cos(fa),ey-18*Math.sin(fa)]],6,col(c))});
+ fc.fillStyle=col("--ink");fc.fillRect(fx-52,ft-12,104,10);fc.fillStyle=col("--mut");fc.font="12px system-ui";fc.fillText("front view (his left leg is on the right)",10,18)}
+function ui(a){a.forEach((v,j)=>{const L=LEG[j],s=srv(j,v),raw=L[3]+L[4]*(cl(v,L[1],L[2])+L[5]);
+ $("a"+j).textContent=v.toFixed(1)+"°";$("s"+j).innerHTML=(raw<0||raw>180?`<span class="bad">${raw.toFixed(0)}°</span>`:s.toFixed(0)+"°");$("m"+j).style.left=cl(s/180*100,0,100)+"%"})}
+function tick(ts){const dt=Math.min(.1,(ts-last)/1000);last=ts;if(run)phase=(phase+dt/(P.cycle/1000)*2*Math.PI)%(2*Math.PI);
+ const a=pose(phase);draw(a);ui(a);requestAnimationFrame(tick)}
+lab();scan();requestAnimationFrame(tick);
+</script></body></html>
